@@ -31,6 +31,7 @@
     --font-sci:    'Georgia', 'Times New Roman', serif;
     --panel-w:     300px;
     --header-h:    48px;
+    --ack-h:       30px;
   }
 
   /* ── Source / endemism color coding ── */
@@ -58,6 +59,19 @@
     font-size: 11px; color: var(--text-dim);
     white-space: nowrap;
   }
+
+  /* ── Acknowledgment banner ── */
+  #ack-banner {
+    position: fixed; top: var(--header-h); left: 0; right: 0; height: var(--ack-h);
+    background: rgba(200,168,90,0.07);
+    border-bottom: 1px solid var(--panel-border);
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 14px; z-index: 1090;
+    font-size: 11px; color: var(--text-dim);
+    text-align: center;
+  }
+  #ack-banner em { color: var(--text); font-style: italic; }
+  #ack-banner .authors { color: var(--accent); }
   #header .spacer { flex: 1; }
   #record-count {
     font-size: 11px; color: var(--text-dim);
@@ -73,7 +87,7 @@
   /* ── Map ── */
   #map {
     position: fixed;
-    top: var(--header-h); bottom: 0;
+    top: calc(var(--header-h) + var(--ack-h)); bottom: 0;
     left: var(--panel-w); right: 0;
     z-index: 1;
     transition: left 0.25s ease;
@@ -83,7 +97,7 @@
   /* ── Side panel ── */
   #panel {
     position: fixed;
-    top: var(--header-h); bottom: 0; left: 0;
+    top: calc(var(--header-h) + var(--ack-h)); bottom: 0; left: 0;
     width: var(--panel-w);
     background: var(--panel-bg);
     border-right: 1px solid var(--panel-border);
@@ -129,6 +143,33 @@
   .taxon-dot {
     width: 8px; height: 8px; border-radius: 50%;
     flex-shrink: 0;
+  }
+
+  /* Place search — same layout as taxon search, but place names aren't
+     scientific names, so no italic styling. */
+  #place-search {
+    width: 100%; padding: 6px 8px;
+    background: var(--bg); border: 1px solid var(--panel-border);
+    color: var(--text-bright); border-radius: 4px;
+    font-family: var(--font-ui); font-size: 12px;
+  }
+  #place-search:focus { outline: none; border-color: var(--accent); }
+
+  #place-list {
+    margin-top: 6px; max-height: 160px;
+    overflow-y: auto; list-style: none;
+  }
+  #place-list li {
+    padding: 5px 6px; cursor: pointer;
+    border-radius: 3px; font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+    justify-content: space-between;
+  }
+  #place-list li:hover { background: rgba(200,168,90,0.12); }
+  #place-list .place-name { color: var(--text); }
+  #place-list .place-type {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-dim);
   }
 
   /* Filter chips */
@@ -298,8 +339,20 @@
   <span id="record-count">— records</span>
 </div>
 
+<!-- Acknowledgment -->
+<div id="ack-banner">
+  <span class="ack-text">This project is intended as a supplement to <em>Nevada Vascular Plants: an Annotated Checklist of the State's Botanical Diversity</em>, by <span class="authors">Arnold (Jerry) Tiehm &amp; Jan Nachlinger</span>.</span>
+</div>
+
 <!-- Filter Panel -->
 <div id="panel">
+
+  <!-- Place name search -->
+  <div class="panel-section">
+    <h2>Go to Place</h2>
+    <input type="text" id="place-search" placeholder="Mountain range, valley, park…" autocomplete="off"/>
+    <ul id="place-list"></ul>
+  </div>
 
   <!-- Taxon search & list -->
   <div class="panel-section">
@@ -444,6 +497,14 @@
 <div id="map"></div>
 
 <script>
+// ============================================================
+// VERSION
+// ============================================================
+// Bump this string whenever index.html changes, so a glance at the
+// browser console confirms which version actually loaded.
+const SCRIPT_VERSION = "2026-06-21-v1-ack-banner-spacing-fix";
+console.log(`index.html version: ${SCRIPT_VERSION}`);
+
 // ============================================================
 // CONFIG & STATE
 // ============================================================
@@ -795,10 +856,8 @@ function featureVisible(f) {
   }
 
   // book theme filter
-  if (state.themes.size > 0) {
-    const theme = p.book_thematic_category || "";
-    if (!state.themes.has(theme)) return false;
-  }
+  const theme = p.book_thematic_category || "";
+  if (!state.themes.has(theme)) return false;
 
   return true;
 }
@@ -819,7 +878,11 @@ function renderMarkers() {
       icon: createMarkerIcon(f.properties),
       riseOnHover: true,
     });
-    marker.bindPopup(buildPopup(f.properties, coords), { maxWidth: 280 });
+    // Performance: don't build popup HTML for all 14k+ points upfront on
+    // every filter change — only generate it the moment a marker is actually
+    // clicked. bindPopup still works the same from the caller's perspective;
+    // Leaflet calls this function lazily right before opening the popup.
+    marker.bindPopup(() => buildPopup(f.properties, coords), { maxWidth: 280 });
     clusterGroup.addLayer(marker);
     markersByFeature.set(f, marker);
     count++;
@@ -932,9 +995,28 @@ function buildThemeChips() {
   const allBtn = document.createElement("button");
   allBtn.className = "chip on";
   allBtn.textContent = "All";
+
+  // Reflects current state on the "All" chip: lit only when every individual
+  // theme chip is also on. Called after every individual toggle so "All"
+  // never gets stuck showing a state that doesn't match reality.
+  function syncAllButton() {
+    const allThemeBtns = container.querySelectorAll(".chip[data-theme]");
+    const allOn = [...allThemeBtns].every(b => b.classList.contains("on"));
+    allBtn.classList.toggle("on", allOn);
+  }
+
   allBtn.addEventListener("click", () => {
-    state.themes = new Set([...themes, ""]);
-    document.querySelectorAll("#theme-chips .chip").forEach(c => c.classList.add("on"));
+    // True toggle: if everything is currently on, turn everything off;
+    // otherwise (anything off, or a mixed state), turn everything on.
+    // This matches the intuitive expectation of a master switch.
+    const turningOn = !allBtn.classList.contains("on");
+    if (turningOn) {
+      state.themes = new Set([...themes, ""]);
+    } else {
+      state.themes = new Set();
+    }
+    container.querySelectorAll(".chip[data-theme]").forEach(c => c.classList.toggle("on", turningOn));
+    allBtn.classList.toggle("on", turningOn);
     renderMarkers();
   });
   container.appendChild(allBtn);
@@ -952,6 +1034,7 @@ function buildThemeChips() {
         state.themes.add(theme);
         btn.classList.add("on");
       }
+      syncAllButton();
       renderMarkers();
     });
     container.appendChild(btn);
@@ -982,6 +1065,146 @@ function buildGenusSelect() {
 
 // Maps region name -> Set of section names that belong to it, built from data
 let regionToSections = new Map();
+
+// ============================================================
+// PLACE NAME DATABASE & SEARCH
+// ============================================================
+// Approximate center coordinates for named Nevada mountain ranges, valleys,
+// and protected areas referenced in Tiehm & Nachlinger's introduction and
+// in general use. These are reasonable approximate centers for navigation
+// purposes only — NOT precise boundaries (we don't have GIS polygon data
+// for these features; see the project notes on Figs. 2 & 3 in the book).
+// zoom: a reasonable level to view the whole feature at once.
+const PLACES_DB = [
+  // Mountain ranges
+  { name: "Egan Range", type: "Range", lat: 39.25, lon: -114.85, zoom: 10 },
+  { name: "Schell Creek Range", type: "Range", lat: 39.30, lon: -114.55, zoom: 10 },
+  { name: "Snake Range", type: "Range", lat: 39.00, lon: -114.30, zoom: 10 },
+  { name: "Toiyabe Range", type: "Range", lat: 38.85, lon: -117.05, zoom: 9 },
+  { name: "Toquima Range", type: "Range", lat: 38.85, lon: -116.85, zoom: 10 },
+  { name: "Ruby Mountains", type: "Range", lat: 40.40, lon: -115.45, zoom: 10 },
+  { name: "East Humboldt Range", type: "Range", lat: 41.05, lon: -115.05, zoom: 10 },
+  { name: "Spring Mountains", type: "Range", lat: 36.25, lon: -115.65, zoom: 10 },
+  { name: "Sheep Range", type: "Range", lat: 36.65, lon: -115.20, zoom: 10 },
+  { name: "Pintwater Range", type: "Range", lat: 36.80, lon: -115.30, zoom: 11 },
+  { name: "Wassuk Range", type: "Range", lat: 38.75, lon: -118.65, zoom: 10 },
+  { name: "Pine Nut Mountains", type: "Range", lat: 38.95, lon: -119.40, zoom: 10 },
+  { name: "Jarbidge Mountains", type: "Range", lat: 41.85, lon: -115.40, zoom: 10 },
+  { name: "Independence Mountains", type: "Range", lat: 41.20, lon: -116.00, zoom: 10 },
+  { name: "Santa Rosa Range", type: "Range", lat: 41.60, lon: -117.55, zoom: 10 },
+  { name: "Jackson Mountains", type: "Range", lat: 41.30, lon: -118.55, zoom: 10 },
+  { name: "Pine Forest Range", type: "Range", lat: 41.75, lon: -118.65, zoom: 10 },
+  { name: "Black Rock Range", type: "Range", lat: 41.30, lon: -119.05, zoom: 10 },
+  { name: "Humboldt Range", type: "Range", lat: 40.45, lon: -118.15, zoom: 10 },
+  { name: "Stillwater Range", type: "Range", lat: 39.65, lon: -118.20, zoom: 10 },
+  { name: "Shoshone Mountains", type: "Range", lat: 39.20, lon: -117.50, zoom: 10 },
+  { name: "Monitor Range", type: "Range", lat: 38.95, lon: -116.55, zoom: 10 },
+  { name: "Hot Creek Range", type: "Range", lat: 38.60, lon: -116.30, zoom: 10 },
+  { name: "Kawich Range", type: "Range", lat: 37.65, lon: -116.20, zoom: 10 },
+  { name: "Grant Range", type: "Range", lat: 38.40, lon: -115.45, zoom: 10 },
+  { name: "Quinn Canyon Range", type: "Range", lat: 38.15, lon: -115.55, zoom: 10 },
+  { name: "Pahranagat Range", type: "Range", lat: 37.55, lon: -115.15, zoom: 10 },
+  { name: "Worthington Mountains", type: "Range", lat: 38.10, lon: -115.20, zoom: 10 },
+  { name: "Silver Peak Range", type: "Range", lat: 37.75, lon: -117.65, zoom: 10 },
+  { name: "White Pine Range", type: "Range", lat: 38.85, lon: -115.40, zoom: 10 },
+  { name: "Cherry Creek Range", type: "Range", lat: 39.85, lon: -114.85, zoom: 10 },
+  { name: "Mahogany Mountains (Lincoln Co)", type: "Range", lat: 37.45, lon: -114.10, zoom: 11 },
+  { name: "Delamar Mountains", type: "Range", lat: 37.55, lon: -114.80, zoom: 10 },
+  { name: "Pancake Range", type: "Range", lat: 38.55, lon: -115.95, zoom: 10 },
+  { name: "Wilson Creek Range", type: "Range", lat: 38.30, lon: -114.40, zoom: 10 },
+  { name: "White Rock Mountains", type: "Range", lat: 38.35, lon: -114.20, zoom: 11 },
+  { name: "Virginia Range", type: "Range", lat: 39.40, lon: -119.45, zoom: 10 },
+  { name: "Sweetwater Mountains", type: "Range", lat: 38.45, lon: -119.25, zoom: 10 },
+  { name: "Pilot Mountains", type: "Range", lat: 38.50, lon: -118.05, zoom: 10 },
+  { name: "Desatoya Mountains", type: "Range", lat: 39.35, lon: -117.85, zoom: 10 },
+  { name: "Clan Alpine Mountains", type: "Range", lat: 39.45, lon: -117.65, zoom: 10 },
+  { name: "Augusta Mountains", type: "Range", lat: 40.30, lon: -117.65, zoom: 10 },
+  { name: "Eugene Mountains", type: "Range", lat: 40.55, lon: -118.30, zoom: 10 },
+  { name: "Sonoma Range", type: "Range", lat: 40.65, lon: -117.50, zoom: 10 },
+  { name: "Pinon Range", type: "Range", lat: 40.85, lon: -116.30, zoom: 10 },
+  { name: "Mt. Washington (Snake Range)", type: "Peak", lat: 38.95, lon: -114.30, zoom: 12 },
+  { name: "Wheeler Peak", type: "Peak", lat: 39.005, lon: -114.313, zoom: 12 },
+  { name: "Charleston Peak (Spring Mts)", type: "Peak", lat: 36.27, lon: -115.69, zoom: 12 },
+  { name: "Arc Dome (Toiyabe Range)", type: "Peak", lat: 38.84, lon: -117.33, zoom: 12 },
+
+  // Valleys and basins
+  { name: "Big Smoky Valley", type: "Valley", lat: 38.70, lon: -117.20, zoom: 9 },
+  { name: "Railroad Valley", type: "Valley", lat: 38.55, lon: -115.65, zoom: 9 },
+  { name: "White River Valley", type: "Valley", lat: 38.40, lon: -115.10, zoom: 9 },
+  { name: "Ruby Valley", type: "Valley", lat: 40.20, lon: -115.45, zoom: 9 },
+  { name: "Steptoe Valley", type: "Valley", lat: 39.30, lon: -114.95, zoom: 9 },
+  { name: "Spring Valley (White Pine Co)", type: "Valley", lat: 39.10, lon: -114.40, zoom: 9 },
+  { name: "Lake Valley", type: "Valley", lat: 38.20, lon: -114.30, zoom: 9 },
+  { name: "Cave Valley", type: "Valley", lat: 38.40, lon: -114.65, zoom: 9 },
+  { name: "Antelope Valley", type: "Valley", lat: 39.95, lon: -115.30, zoom: 9 },
+  { name: "Monitor Valley", type: "Valley", lat: 38.85, lon: -116.70, zoom: 9 },
+  { name: "Reese River Valley", type: "Valley", lat: 39.50, lon: -117.20, zoom: 9 },
+  { name: "Fish Lake Valley", type: "Valley", lat: 37.70, lon: -117.95, zoom: 9 },
+  { name: "Amargosa Valley", type: "Valley", lat: 36.65, lon: -116.40, zoom: 9 },
+  { name: "Black Rock Desert", type: "Valley", lat: 41.10, lon: -119.05, zoom: 9 },
+  { name: "Carson Sink", type: "Valley", lat: 39.80, lon: -118.60, zoom: 9 },
+  { name: "Stone Cabin Valley", type: "Valley", lat: 38.30, lon: -116.50, zoom: 9 },
+  { name: "Kawich Valley", type: "Valley", lat: 37.85, lon: -116.30, zoom: 9 },
+  { name: "Garden Valley", type: "Valley", lat: 37.75, lon: -115.35, zoom: 9 },
+  { name: "Coyote Springs Valley", type: "Valley", lat: 36.85, lon: -115.05, zoom: 9 },
+  { name: "Pahute Mesa", type: "Valley", lat: 37.30, lon: -116.40, zoom: 10 },
+  { name: "Yucca Flat", type: "Valley", lat: 37.10, lon: -116.05, zoom: 10 },
+  { name: "Frenchman Flat", type: "Valley", lat: 36.80, lon: -115.95, zoom: 10 },
+  { name: "Meadow Valley", type: "Valley", lat: 37.70, lon: -114.55, zoom: 9 },
+
+  // Protected areas, parks, refuges
+  { name: "Great Basin National Park", type: "Park", lat: 38.98, lon: -114.30, zoom: 11 },
+  { name: "Ash Meadows NWR", type: "Refuge", lat: 36.42, lon: -116.35, zoom: 11 },
+  { name: "Red Rock Canyon NCA", type: "Park", lat: 36.14, lon: -115.43, zoom: 11 },
+  { name: "Desert National Wildlife Refuge", type: "Refuge", lat: 36.85, lon: -115.20, zoom: 9 },
+  { name: "Sheldon National Wildlife Refuge", type: "Refuge", lat: 41.85, lon: -119.20, zoom: 9 },
+  { name: "Nevada National Security Site", type: "Restricted Area", lat: 37.15, lon: -116.10, zoom: 9 },
+  { name: "Basin and Range National Monument", type: "Monument", lat: 38.30, lon: -115.30, zoom: 9 },
+  { name: "Valley of Fire State Park", type: "Park", lat: 36.43, lon: -114.53, zoom: 11 },
+
+  // Cities/towns (for general orientation)
+  { name: "Reno", type: "City", lat: 39.53, lon: -119.81, zoom: 10 },
+  { name: "Las Vegas", type: "City", lat: 36.17, lon: -115.14, zoom: 10 },
+  { name: "Elko", type: "City", lat: 40.83, lon: -115.76, zoom: 10 },
+  { name: "Ely", type: "City", lat: 39.25, lon: -114.89, zoom: 10 },
+  { name: "Tonopah", type: "City", lat: 38.07, lon: -117.23, zoom: 10 },
+  { name: "Carson City", type: "City", lat: 39.16, lon: -119.77, zoom: 10 },
+  { name: "Pioche", type: "City", lat: 37.93, lon: -114.45, zoom: 10 },
+];
+
+function buildPlaceSearch(filter = "") {
+  const list = document.getElementById("place-list");
+  list.innerHTML = "";
+  if (!filter) return;   // only show results once the person starts typing
+
+  const matches = PLACES_DB.filter(p => p.name.toLowerCase().includes(filter.toLowerCase()));
+
+  if (matches.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "No matches — try a different name";
+    li.style.color = "var(--text-dim)";
+    list.appendChild(li);
+    return;
+  }
+
+  matches.slice(0, 25).forEach(place => {
+    const li = document.createElement("li");
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "place-name";
+    nameSpan.textContent = place.name;
+    const typeSpan = document.createElement("span");
+    typeSpan.className = "place-type";
+    typeSpan.textContent = place.type;
+    li.appendChild(nameSpan);
+    li.appendChild(typeSpan);
+    li.addEventListener("click", () => {
+      map.setView([place.lat, place.lon], place.zoom);
+      document.getElementById("place-search").value = place.name;
+      list.innerHTML = "";
+    });
+    list.appendChild(li);
+  });
+}
 
 function buildRegionSelects() {
   // Regions/sections can contain compound values like "Central Great Basin / Northern Great Basin"
@@ -1146,18 +1369,24 @@ async function init() {
     center: [39.5, -116.5],
     zoom: 7,
     zoomControl: true,
+    maxZoom: 20,   // allow zooming past basemap tile resolution (tiles will upscale,
+                   // but this is essential for separating tightly-clustered points)
   });
 
   // Basemap — USGS Topo (good for field use)
+  // maxNativeZoom: tiles stop updating past 16, but the map itself can keep
+  // zooming further (maxZoom above) — tiles just upscale/blur slightly. This
+  // tradeoff is worth it: without it, points in dense collection areas (e.g.
+  // popular peaks with many herbarium records) become impossible to separate.
   L.tileLayer(
     "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
-    { attribution: "USGS National Map", maxZoom: 16 }
+    { attribution: "USGS National Map", maxZoom: 20, maxNativeZoom: 16 }
   ).addTo(map);
 
   // Satellite toggle
   const satellite = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    { attribution: "Esri World Imagery", maxZoom: 19 }
+    { attribution: "Esri World Imagery", maxZoom: 20, maxNativeZoom: 19 }
   );
   L.control.layers(
     { "USGS Topo": map._layers[Object.keys(map._layers)[0]], "Satellite": satellite },
@@ -1166,9 +1395,18 @@ async function init() {
   ).addTo(map);
 
   clusterGroup = L.markerClusterGroup({
-    maxClusterRadius: 40,
-    disableClusteringAtZoom: 12,
+    maxClusterRadius: 35,
+    // Disabling clustering entirely at high zoom was causing overlapping points
+    // with no way to separate them (spiderfy only works on actual clusters).
+    // Raising this threshold keeps tight groups of points clustered longer,
+    // so they remain spiderfy-able (click → spreads into a starburst pattern)
+    // even when very close together geographically.
+    disableClusteringAtZoom: 19,
     spiderfyOnMaxZoom: true,
+    // Tighter spiderfy spacing so spread-out points stay close to their true
+    // location rather than fanning out across a wide visual area.
+    spiderfyDistanceMultiplier: 1.5,
+    zoomToBoundsOnClick: true,
   });
   map.addLayer(clusterGroup);
 
@@ -1213,6 +1451,10 @@ async function init() {
   renderMarkers();
 
   // ── Wire controls ──
+
+  document.getElementById("place-search").addEventListener("input", e => {
+    buildPlaceSearch(e.target.value);
+  });
 
   document.getElementById("taxon-search").addEventListener("input", e => {
     buildTaxonList(e.target.value);
