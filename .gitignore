@@ -1,0 +1,17 @@
+﻿# Python virtual environment — machine-specific, never commit
+venv/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Diagnostic/scratch output from troubleshooting sessions
+output.txt
+
+# OS-specific junk files
+.DS_Store
+Thumbs.db
+
+# Local backup files (not needed in the repo)
+data/occurrences_backup.geojson
+data/taxa_metadata_backup.json

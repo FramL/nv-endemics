@@ -1,0 +1,1301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nevada Endemic Plants</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<!-- Leaflet.markercluster -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+
+<style>
+  /* ── Design tokens ── */
+  :root {
+    --bg:          #1a1c1e;
+    --panel-bg:    #22252a;
+    --panel-border:#2e333b;
+    --text:        #d4cfc8;
+    --text-dim:    #7a7972;
+    --text-bright: #f0ece4;
+    --accent:      #c8a85a;       /* desert gold */
+    --accent2:     #6a9e7f;       /* sage green  */
+    --esa-color:   #e05a4a;       /* ESA listed  */
+    --nv-color:    #c86e2a;       /* NV protected */
+    --font-ui:     'Inter', 'Helvetica Neue', sans-serif;
+    --font-sci:    'Georgia', 'Times New Roman', serif;
+    --panel-w:     300px;
+    --header-h:    48px;
+  }
+
+  /* ── Source / endemism color coding ── */
+  /* Herbarium = circles; iNat = diamonds  */
+  /* Endemic = solid fill; near-endemic = ring; disjunct = dotted ring */
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 13px; }
+
+  /* ── Header ── */
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; height: var(--header-h);
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--panel-border);
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 14px; z-index: 1100;
+  }
+  #header h1 {
+    font-family: var(--font-sci);
+    font-size: 15px; font-style: italic;
+    color: var(--accent); white-space: nowrap;
+    letter-spacing: 0.02em;
+  }
+  #header .subtitle {
+    font-size: 11px; color: var(--text-dim);
+    white-space: nowrap;
+  }
+  #header .spacer { flex: 1; }
+  #record-count {
+    font-size: 11px; color: var(--text-dim);
+    white-space: nowrap;
+  }
+  #toggle-panel-btn {
+    background: none; border: 1px solid var(--panel-border);
+    color: var(--text); border-radius: 4px;
+    padding: 4px 9px; cursor: pointer; font-size: 12px;
+  }
+  #toggle-panel-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Map ── */
+  #map {
+    position: fixed;
+    top: var(--header-h); bottom: 0;
+    left: var(--panel-w); right: 0;
+    z-index: 1;
+    transition: left 0.25s ease;
+  }
+  #map.full { left: 0; }
+
+  /* ── Side panel ── */
+  #panel {
+    position: fixed;
+    top: var(--header-h); bottom: 0; left: 0;
+    width: var(--panel-w);
+    background: var(--panel-bg);
+    border-right: 1px solid var(--panel-border);
+    overflow-y: auto; overflow-x: hidden;
+    z-index: 1000;
+    display: flex; flex-direction: column;
+    transition: transform 0.25s ease;
+  }
+  #panel.hidden { transform: translateX(-100%); }
+
+  .panel-section {
+    border-bottom: 1px solid var(--panel-border);
+    padding: 12px 14px;
+  }
+  .panel-section h2 {
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text-dim); margin-bottom: 8px;
+  }
+
+  /* Search */
+  #taxon-search {
+    width: 100%; padding: 6px 8px;
+    background: var(--bg); border: 1px solid var(--panel-border);
+    color: var(--text-bright); border-radius: 4px;
+    font-family: var(--font-sci); font-size: 12px; font-style: italic;
+  }
+  #taxon-search:focus { outline: none; border-color: var(--accent); }
+
+  #taxon-list {
+    margin-top: 6px; max-height: 180px;
+    overflow-y: auto; list-style: none;
+  }
+  #taxon-list li {
+    padding: 4px 6px; cursor: pointer;
+    border-radius: 3px; font-family: var(--font-sci);
+    font-style: italic; font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  #taxon-list li:hover { background: rgba(200,168,90,0.12); }
+  #taxon-list li.active { background: rgba(200,168,90,0.22); color: var(--accent); }
+
+  .taxon-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* Filter chips */
+  .chip-group { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip {
+    padding: 3px 8px; border-radius: 12px; cursor: pointer;
+    font-size: 11px; border: 1px solid var(--panel-border);
+    color: var(--text-dim); background: transparent;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+  .chip.esa.on { background: var(--esa-color); border-color: var(--esa-color); }
+  .chip.nv.on  { background: var(--nv-color);  border-color: var(--nv-color); }
+
+  /* Source toggle */
+  .source-row { display: flex; gap: 6px; }
+  .src-btn {
+    flex: 1; padding: 5px; text-align: center;
+    border: 1px solid var(--panel-border); border-radius: 4px;
+    cursor: pointer; font-size: 11px; color: var(--text-dim);
+    background: transparent; transition: all 0.15s;
+  }
+  .src-btn .sym { display: block; font-size: 16px; line-height: 1; }
+  .src-btn.on { border-color: var(--accent2); color: var(--accent2); background: rgba(106,158,127,0.12); }
+
+  /* Legend */
+  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 11px; }
+  .legend-sym { width: 18px; text-align: center; flex-shrink: 0; }
+
+  /* Taxon info card */
+  #taxon-card {
+    padding: 12px 14px;
+    background: rgba(200,168,90,0.06);
+    border-bottom: 1px solid var(--panel-border);
+    display: none;
+  }
+  #taxon-card.visible { display: block; }
+  #taxon-card .tc-name {
+    font-family: var(--font-sci); font-style: italic;
+    font-size: 14px; color: var(--accent);
+    margin-bottom: 6px;
+  }
+  #taxon-card .tc-row {
+    display: flex; gap: 4px; margin-bottom: 3px;
+    font-size: 11px; align-items: baseline;
+  }
+  #taxon-card .tc-label { color: var(--text-dim); min-width: 80px; }
+  #taxon-card .tc-val  { color: var(--text-bright); }
+  .badge {
+    display: inline-block; padding: 1px 6px;
+    border-radius: 10px; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .badge-esa  { background: var(--esa-color);  color: #fff; }
+  .badge-nv   { background: var(--nv-color);   color: #fff; }
+  .badge-endemic     { background: #3a4a5c; color: #8ab4d4; }
+  .badge-near-endemic{ background: #3a4030; color: #8ac49a; }
+  .badge-disjunct    { background: #3a3040; color: #c4a0d4; }
+
+  /* Export */
+  #export-btn {
+    width: 100%; padding: 8px;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #export-btn:hover { background: rgba(106,158,127,0.3); }
+
+  #export-csv-btn {
+    width: 100%; padding: 8px;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #export-csv-btn:hover { background: rgba(106,158,127,0.3); }
+
+  #clear-btn {
+    width: 100%; padding: 6px;
+    background: transparent; border: 1px solid var(--panel-border);
+    color: var(--text-dim); border-radius: 4px;
+    cursor: pointer; font-size: 11px; margin-top: 5px;
+    transition: all 0.15s;
+  }
+  #clear-btn:hover { border-color: var(--text-dim); color: var(--text); }
+
+  /* Popup */
+  .leaflet-popup-content-wrapper {
+    background: var(--panel-bg) !important;
+    border: 1px solid var(--panel-border) !important;
+    border-radius: 6px !important;
+    color: var(--text) !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+  }
+  .leaflet-popup-tip { background: var(--panel-bg) !important; }
+  .leaflet-popup-content { margin: 10px 14px !important; min-width: 220px; }
+  .popup-name {
+    font-family: var(--font-sci); font-style: italic;
+    font-size: 13px; color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .popup-row { font-size: 11px; margin-bottom: 2px; }
+  .popup-row .lbl { color: var(--text-dim); }
+  .popup-coords {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; margin: 6px 0; padding: 4px 6px;
+    background: rgba(200,168,90,0.08); border-radius: 4px;
+    font-family: 'Courier New', monospace;
+  }
+  .popup-coords .coord-val { color: var(--text-bright); flex: 1; }
+  .copy-coords-btn {
+    background: rgba(106,158,127,0.18); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 3px;
+    padding: 2px 7px; font-size: 10px; cursor: pointer;
+    font-family: var(--font-ui);
+    transition: all 0.15s;
+  }
+  .copy-coords-btn:hover { background: rgba(106,158,127,0.32); }
+  .copy-coords-btn.copied { background: var(--accent2); color: var(--bg); }
+  .popup-link {
+    display: inline-block; margin-top: 6px;
+    font-size: 11px; color: var(--accent2);
+    text-decoration: none;
+  }
+  .popup-link:hover { text-decoration: underline; }
+
+  /* Loading overlay */
+  #loading {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 9999; gap: 12px;
+  }
+  #loading .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--panel-border);
+    border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  #loading p { color: var(--text-dim); font-size: 13px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <p>Loading occurrence data…</p>
+</div>
+
+<!-- Header -->
+<div id="header">
+  <button id="toggle-panel-btn" title="Toggle filter panel">☰ Filters</button>
+  <h1>Nevada Endemic & Near-Endemic Plants</h1>
+  <span class="subtitle">Herbarium &amp; iNaturalist occurrences</span>
+  <span class="spacer"></span>
+  <span id="record-count">— records</span>
+</div>
+
+<!-- Filter Panel -->
+<div id="panel">
+
+  <!-- Taxon search & list -->
+  <div class="panel-section">
+    <h2>Taxon</h2>
+    <input type="text" id="taxon-search" placeholder="Search scientific name…" autocomplete="off"/>
+    <ul id="taxon-list"></ul>
+  </div>
+
+  <!-- Taxon info card (shown when a taxon is selected) -->
+  <div id="taxon-card"></div>
+
+  <!-- Endemism category -->
+  <div class="panel-section">
+    <h2>Endemism Category</h2>
+    <div class="chip-group" id="endemism-chips">
+      <button class="chip on" data-val="endemic">Endemic</button>
+      <button class="chip on" data-val="near-endemic">Near-endemic</button>
+      <button class="chip on" data-val="disjunct">Disjunct</button>
+    </div>
+  </div>
+
+  <!-- Data source -->
+  <div class="panel-section">
+    <h2>Data Source</h2>
+    <div class="source-row">
+      <button class="src-btn on" id="src-herbarium">
+        <span class="sym">●</span>
+        Herbarium
+      </button>
+      <button class="src-btn on" id="src-inat">
+        <span class="sym">◆</span>
+        iNaturalist
+      </button>
+    </div>
+  </div>
+
+  <!-- Conservation status -->
+  <div class="panel-section">
+    <h2>Conservation Status</h2>
+    <div class="chip-group">
+      <button class="chip esa on" data-filter="esa">ESA Listed</button>
+      <button class="chip nv on"  data-filter="nv">NV Protected</button>
+      <button class="chip on" data-filter="unlisted">Unlisted</button>
+    </div>
+  </div>
+
+  <!-- Physiographic region/section -->
+  <div class="panel-section">
+    <h2>Physiographic Region <span style="font-weight:400;text-transform:none;color:var(--text-dim);">(taxon's home range)</span></h2>
+    <select id="region-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:6px;">
+      <option value="">All regions</option>
+    </select>
+    <select id="section-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+      <option value="">All sections</option>
+    </select>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+      Filters by where each species' main population occurs per the book — not by each point's exact coordinates. Outlier records may still appear.
+    </div>
+  </div>
+
+  <!-- Book thematic category -->
+  <div class="panel-section">
+    <h2>Book Category</h2>
+    <div class="chip-group" id="theme-chips">
+      <!-- populated dynamically from data -->
+    </div>
+  </div>
+
+  <!-- Genus filter -->
+  <div class="panel-section">
+    <h2>Genus</h2>
+    <select id="genus-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+      <option value="">All genera</option>
+    </select>
+  </div>
+
+  <!-- iNat quality grade -->
+  <div class="panel-section">
+    <h2>iNat Quality Grade</h2>
+    <div class="chip-group" id="grade-chips">
+      <button class="chip on" data-grade="research">Research Grade</button>
+      <button class="chip on" data-grade="needs_id">Needs ID</button>
+      <button class="chip on" data-grade="casual">Casual</button>
+    </div>
+  </div>
+
+  <!-- iNat GPS accuracy -->
+  <div class="panel-section">
+    <h2>iNat GPS Accuracy</h2>
+    <select id="accuracy-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:6px;">
+      <option value="0">Show all (no accuracy filter)</option>
+      <option value="30">≤30 m only (high precision)</option>
+      <option value="100">≤100 m only</option>
+      <option value="250">≤250 m only</option>
+      <option value="1000">≤1 km only</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);cursor:pointer;">
+      <input type="checkbox" id="exclude-obscured" style="cursor:pointer;"/>
+      Exclude obscured coordinates
+    </label>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+      Obscured points are randomized by iNat (often 10–20+ km) to protect sensitive species. The accuracy filter above now correctly reflects this — obscured points report their true (large) public uncertainty, not the device's original precision — but checking this box adds an explicit, unambiguous exclusion. Affects iNat points only; herbarium records are unaffected by either control.
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="panel-section">
+    <h2>Legend</h2>
+    <div class="legend-row"><span class="legend-sym" style="color:#c8a85a">●</span> Herbarium record</div>
+    <div class="legend-row"><span class="legend-sym" style="color:#6a9e7f">◆</span> iNat observation</div>
+    <div class="legend-row"><span class="legend-sym" style="font-size:11px;color:#e05a4a">●</span> ESA Listed</div>
+    <div class="legend-row"><span class="legend-sym" style="font-size:11px;color:#c86e2a">●</span> NV Protected</div>
+    <div style="margin:8px 0 4px;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;">Endemism (fill style)</div>
+    <div class="legend-row">
+      <span class="legend-sym"><svg width="14" height="14" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="#c8a85a"/></svg></span>
+      Endemic — solid fill
+    </div>
+    <div class="legend-row">
+      <span class="legend-sym"><svg width="14" height="14" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="#c8a85a" stroke-width="2.5"/></svg></span>
+      Near-endemic — open ring
+    </div>
+    <div class="legend-row">
+      <span class="legend-sym"><svg width="14" height="14" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="#c8a85a" stroke-width="2" stroke-dasharray="3,2"/></svg></span>
+      Disjunct — dashed ring
+    </div>
+    <div style="margin-top:6px;font-size:11px;color:var(--text-dim)">
+      Colors cycle by species when no single taxon is selected.
+    </div>
+  </div>
+
+  <!-- Export -->
+  <div class="panel-section">
+    <h2>Export</h2>
+    <button id="export-btn">⬇ GeoJSON (for Gaia GPS)</button>
+    <button id="export-csv-btn" style="margin-top:6px;">⬇ CSV (coordinates + data)</button>
+    <button id="clear-btn">Clear all filters</button>
+  </div>
+
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+
+<script>
+// ============================================================
+// CONFIG & STATE
+// ============================================================
+
+const CONFIG = {
+  // Change this path if you move the GeoJSON file
+  occurrencesUrl: "data/occurrences.geojson",
+  taxaMetaUrl:    "data/taxa_metadata.json",
+
+  // Demo data is now auto-detected at load time (see init()) based on
+  // whether data/occurrences.geojson actually loads and has features.
+  // No manual toggle needed.
+};
+
+// ── Species color palette (cycles) ──
+const SPECIES_COLORS = [
+  "#c8a85a","#6a9e7f","#7faed4","#c87a6a","#9e8abf",
+  "#d4b86a","#5aa89e","#bf9a5a","#7ab48a","#c8785a",
+  "#5a8abf","#a89e5a","#8a7abf","#6abeaa","#bf6a8a",
+  "#aaba7a","#7aaabf","#c89a6a","#5a9ebf","#bfa85a",
+];
+
+let allFeatures = [];
+let taxaMetadata = {};
+let speciesColorMap = {};
+let colorIndex = 0;
+
+// Filter state
+const state = {
+  selectedTaxon: null,
+  endemism: new Set(["endemic","near-endemic","disjunct"]),
+  sources: new Set(["herbarium","inat"]),
+  statusFilters: new Set(["esa","nv","unlisted"]),
+  grades: new Set(["research","needs_id","casual"]),
+  genus: "",
+  region: "",
+  section: "",
+  maxAccuracyM: 0,         // 0 = no filter; otherwise max allowed positional_accuracy_m
+  excludeObscured: false,
+  themes: new Set(),  // populated from data
+};
+
+// Leaflet objects
+let map, clusterGroup;
+let markersByFeature = new Map();
+
+// ============================================================
+// DEMO DATA — synthetic points when real GeoJSON not available
+// ============================================================
+
+function generateDemoData() {
+  const nv_center = [39.5, -116.5];
+  const taxa_sample = [
+    {taxon:"Lepidium tiehmii", genus:"Lepidium", endemism_category:"endemic", esa_status:"Endangered", nv_state_status:"", book_thematic_category:"Edaphic"},
+    {taxon:"Astragalus lentiginosus var. latus", genus:"Astragalus", endemism_category:"endemic", esa_status:"", nv_state_status:"Protected", book_thematic_category:""},
+    {taxon:"Eriogonum tiehmii", genus:"Eriogonum", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:""},
+    {taxon:"Primula nevadensis", genus:"Primula", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:"Groundwater Springs"},
+    {taxon:"Penstemon tiehmii", genus:"Penstemon", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:""},
+    {taxon:"Astragalus tiehmii", genus:"Astragalus", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:""},
+    {taxon:"Draba arida", genus:"Draba", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:"Alpine"},
+    {taxon:"Ivesia pityocharis", genus:"Ivesia", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:""},
+    {taxon:"Castilleja salsuginosa", genus:"Castilleja", endemism_category:"endemic", esa_status:"", nv_state_status:"Protected", book_thematic_category:"Groundwater Springs"},
+    {taxon:"Sclerocactus nyensis", genus:"Sclerocactus", endemism_category:"endemic", esa_status:"Threatened", nv_state_status:"", book_thematic_category:""},
+  ];
+
+  // populate taxaMetadata from demo
+  taxa_sample.forEach(t => {
+    t.physiographic_region = t.physiographic_region || "Central Great Basin";
+    t.physiographic_section = t.physiographic_section || "Tonopah Section";
+    taxaMetadata[t.taxon] = t;
+  });
+
+  const features = [];
+  taxa_sample.forEach(meta => {
+    const n_herb = 5 + Math.floor(Math.random() * 20);
+    const n_inat = Math.floor(Math.random() * 10);
+    for (let i = 0; i < n_herb; i++) {
+      features.push({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [
+            nv_center[1] + (Math.random()-0.5)*6,
+            nv_center[0] + (Math.random()-0.5)*4
+          ]
+        },
+        properties: {
+          source: "herbarium",
+          taxon: meta.taxon,
+          genus: meta.genus,
+          endemism_category: meta.endemism_category,
+          esa_status: meta.esa_status,
+          nv_state_status: meta.nv_state_status,
+          book_thematic_category: meta.book_thematic_category,
+          physiographic_region: meta.physiographic_region,
+          physiographic_section: meta.physiographic_section,
+          collector: ["A. Tiehm","J. Nachlinger","A.H. Holmgren","N.H. Holmgren"][Math.floor(Math.random()*4)],
+          institution: ["UNLV","UNR","NY","UC"][Math.floor(Math.random()*4)],
+          locality: `Demo locality ${i+1}`,
+          county: ["Nye","Elko","Lander","Mineral","White Pine"][Math.floor(Math.random()*5)],
+          url: "",
+        }
+      });
+    }
+    for (let i = 0; i < n_inat; i++) {
+      features.push({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [
+            nv_center[1] + (Math.random()-0.5)*6,
+            nv_center[0] + (Math.random()-0.5)*4
+          ]
+        },
+        properties: {
+          source: "inat",
+          taxon: meta.taxon,
+          genus: meta.genus,
+          endemism_category: meta.endemism_category,
+          esa_status: meta.esa_status,
+          nv_state_status: meta.nv_state_status,
+          book_thematic_category: meta.book_thematic_category,
+          physiographic_region: meta.physiographic_region,
+          physiographic_section: meta.physiographic_section,
+          observed_on: `${2015+Math.floor(Math.random()*10)}-0${1+Math.floor(Math.random()*8)}-${10+Math.floor(Math.random()*20)}`,
+          observer: ["stevef","nv_botanist","desert_plant_nerd","great_basin_flora"][Math.floor(Math.random()*4)],
+          quality_grade: ["research","research","needs_id","casual"][Math.floor(Math.random()*4)],
+          place_guess: `Nevada`,
+          url: "",
+        }
+      });
+    }
+  });
+  return features;
+}
+
+// ============================================================
+// SPECIES COLOR
+// ============================================================
+
+function getSpeciesColor(taxon) {
+  if (!speciesColorMap[taxon]) {
+    speciesColorMap[taxon] = SPECIES_COLORS[colorIndex % SPECIES_COLORS.length];
+    colorIndex++;
+  }
+  return speciesColorMap[taxon];
+}
+
+// ============================================================
+// MARKER CREATION
+// ============================================================
+
+function markerColor(props) {
+  if (props.esa_status && props.esa_status.trim()) return "#e05a4a";
+  if (props.nv_state_status && props.nv_state_status.trim()) return "#c86e2a";
+  return getSpeciesColor(props.taxon);
+}
+
+function createMarkerIcon(props) {
+  const color = markerColor(props);
+  const isHerbarium = props.source === "herbarium";
+  const endemism = props.endemism_category || "endemic";
+
+  let svgInner;
+  if (isHerbarium) {
+    // Circle — solid for endemic, ring for near-endemic, dotted ring for disjunct
+    if (endemism === "endemic") {
+      svgInner = `<circle cx="9" cy="9" r="6" fill="${color}" stroke="#1a1c1e" stroke-width="1.5"/>`;
+    } else if (endemism === "near-endemic") {
+      svgInner = `<circle cx="9" cy="9" r="6" fill="none" stroke="${color}" stroke-width="2.5"/>`;
+    } else {
+      svgInner = `<circle cx="9" cy="9" r="6" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="3,2"/>`;
+    }
+  } else {
+    // Diamond (rotated square) — same fill/ring logic
+    const pts = "9,2 16,9 9,16 2,9";
+    if (endemism === "endemic") {
+      svgInner = `<polygon points="${pts}" fill="${color}" stroke="#1a1c1e" stroke-width="1.5"/>`;
+    } else if (endemism === "near-endemic") {
+      svgInner = `<polygon points="${pts}" fill="none" stroke="${color}" stroke-width="2.5"/>`;
+    } else {
+      svgInner = `<polygon points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="3,2"/>`;
+    }
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">${svgInner}</svg>`;
+  return L.divIcon({
+    html: svg,
+    className: "",
+    iconSize: [18,18],
+    iconAnchor: [9,9],
+    popupAnchor: [0,-10],
+  });
+}
+
+// ============================================================
+// POPUP CONTENT
+// ============================================================
+
+// ============================================================
+// COPY COORDINATES TO CLIPBOARD
+// ============================================================
+
+function copyCoords(elementId, btn) {
+  const text = document.getElementById(elementId).textContent;
+  // navigator.clipboard requires a secure context (https or localhost);
+  // fall back to the older execCommand approach if unavailable.
+  const showCopied = () => {
+    const original = btn.textContent;
+    btn.textContent = "✓ Copied";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.classList.remove("copied");
+    }, 1500);
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(() => {
+      fallbackCopy(text, showCopied);
+    });
+  } else {
+    fallbackCopy(text, showCopied);
+  }
+}
+
+function fallbackCopy(text, onSuccess) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+    onSuccess();
+  } catch(e) {
+    console.warn("Copy failed:", e);
+  }
+  document.body.removeChild(ta);
+}
+
+function buildPopup(props, coords) {
+  const isHerb = props.source === "herbarium";
+  const esa  = props.esa_status  ? `<span class="badge badge-esa">${props.esa_status}</span> ` : "";
+  const nvs  = props.nv_state_status ? `<span class="badge badge-nv">${props.nv_state_status}</span> ` : "";
+  const ecat = props.endemism_category || "endemic";
+  const ecatBadge = `<span class="badge badge-${ecat}">${ecat}</span>`;
+
+  // coords is [lon, lat] per GeoJSON convention; display as lat, lon (standard for
+  // copy-pasting into Gaia GPS, Google Maps, etc.) with 5 decimal places (~1m precision)
+  const lon = coords[0];
+  const lat = coords[1];
+  const coordStr = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  // Unique id so multiple open popups don't collide on the copy button
+  const coordId = `coord_${Math.random().toString(36).slice(2,9)}`;
+
+  let rows = "";
+  if (isHerb) {
+    rows = `
+      <div class="popup-row"><span class="lbl">Date:</span> ${props.collection_date || "—"}</div>
+      <div class="popup-row"><span class="lbl">Collector:</span> ${props.collector || "—"}</div>
+      <div class="popup-row"><span class="lbl">Institution:</span> ${props.institution || "—"}</div>
+      <div class="popup-row"><span class="lbl">County:</span> ${props.county || "—"}</div>
+      <div class="popup-row"><span class="lbl">Locality:</span> ${props.locality || "—"}</div>
+    `;
+  } else {
+    const acc = props.positional_accuracy_m;
+    const accText = (acc === "" || acc === null || acc === undefined)
+      ? "not reported"
+      : `±${Math.round(acc)} m`;
+    const accColor = (acc === "" || acc === null || acc === undefined) ? "var(--text-dim)"
+      : acc <= 30 ? "var(--accent2)"
+      : acc <= 250 ? "var(--accent)"
+      : "var(--esa-color)";
+    const obscuredWarning = props.coordinates_obscured
+      ? `<div class="popup-row" style="color:var(--esa-color);font-weight:600;margin-top:4px;">
+           ⚠ Coordinates obscured — iNat randomizes this point (often by several km) to protect a sensitive species. Do not use for relocating this population.
+         </div>`
+      : "";
+    rows = `
+      <div class="popup-row"><span class="lbl">Date:</span> ${props.observed_on || "—"}</div>
+      <div class="popup-row"><span class="lbl">Observer:</span> ${props.observer || "—"}</div>
+      <div class="popup-row"><span class="lbl">Quality:</span> ${props.quality_grade || "—"}</div>
+      <div class="popup-row"><span class="lbl">Place:</span> ${props.place_guess || "—"}</div>
+      <div class="popup-row"><span class="lbl">GPS accuracy:</span> <span style="color:${accColor};font-weight:600;">${accText}</span></div>
+      ${obscuredWarning}
+    `;
+  }
+
+  const sourceLabel = isHerb ? "● Herbarium" : "◆ iNaturalist";
+  const link = props.url ? `<a class="popup-link" href="${props.url}" target="_blank">View record ↗</a>` : "";
+
+  return `
+    <div class="popup-name">${props.taxon}</div>
+    <div style="margin-bottom:6px;">${ecatBadge} ${esa}${nvs}</div>
+    <div class="popup-row" style="color:var(--text-dim);margin-bottom:4px;">${sourceLabel}</div>
+    <div class="popup-coords">
+      <span class="coord-val" id="${coordId}">${coordStr}</span>
+      <button class="copy-coords-btn" onclick="copyCoords('${coordId}', this)">Copy</button>
+    </div>
+    ${rows}
+    ${link}
+  `;
+}
+
+// ============================================================
+// FILTER LOGIC
+// ============================================================
+
+function featureVisible(f) {
+  const p = f.properties;
+  if (state.selectedTaxon && p.taxon !== state.selectedTaxon) return false;
+  if (!state.endemism.has(p.endemism_category || "endemic")) return false;
+  if (!state.sources.has(p.source)) return false;
+  if (state.genus && p.genus !== state.genus) return false;
+  // NOTE: physiographic_region/section are properties of the TAXON (assigned
+  // from the book's discussion of where each species' main populations occur),
+  // not of the individual occurrence point's actual coordinates. A taxon whose
+  // primary range is "Northern Great Basin" can still have outlier GBIF/iNat
+  // records far outside that region — this filter includes ALL of that taxon's
+  // points when its region matches, by design. True point-level region
+  // filtering would require GIS polygon boundaries we don't currently have
+  // (see Figs. 2 & 3 in the book — not yet machine-readable).
+  if (state.region && !(p.physiographic_region || "").includes(state.region)) return false;
+  if (state.section && !(p.physiographic_section || "").includes(state.section)) return false;
+
+  // status
+  const hasEsa = p.esa_status && p.esa_status.trim();
+  const hasNv  = p.nv_state_status && p.nv_state_status.trim();
+  if (hasEsa && !state.statusFilters.has("esa")) return false;
+  if (!hasEsa && hasNv && !state.statusFilters.has("nv")) return false;
+  if (!hasEsa && !hasNv && !state.statusFilters.has("unlisted")) return false;
+
+  // iNat grade filter only applies to iNat records
+  if (p.source === "inat" && !state.grades.has(p.quality_grade || "casual")) return false;
+
+  // iNat GPS accuracy / obscured-coordinates filters — herbarium records are
+  // unaffected since these fields don't apply to specimen data.
+  if (p.source === "inat") {
+    if (state.excludeObscured && p.coordinates_obscured) return false;
+    if (state.maxAccuracyM > 0) {
+      const acc = p.positional_accuracy_m;
+      // Records with no reported accuracy are excluded once a threshold is set,
+      // since we can't confirm they meet it — safer default than assuming they pass.
+      if (acc === "" || acc === null || acc === undefined) return false;
+      if (Number(acc) > state.maxAccuracyM) return false;
+    }
+  }
+
+  // book theme filter
+  if (state.themes.size > 0) {
+    const theme = p.book_thematic_category || "";
+    if (!state.themes.has(theme)) return false;
+  }
+
+  return true;
+}
+
+// ============================================================
+// RENDER MARKERS
+// ============================================================
+
+function renderMarkers() {
+  clusterGroup.clearLayers();
+  markersByFeature.clear();
+  let count = 0;
+
+  allFeatures.forEach(f => {
+    if (!featureVisible(f)) return;
+    const coords = f.geometry.coordinates;
+    const marker = L.marker([coords[1], coords[0]], {
+      icon: createMarkerIcon(f.properties),
+      riseOnHover: true,
+    });
+    marker.bindPopup(buildPopup(f.properties, coords), { maxWidth: 280 });
+    clusterGroup.addLayer(marker);
+    markersByFeature.set(f, marker);
+    count++;
+  });
+
+  document.getElementById("record-count").textContent =
+    `${count.toLocaleString()} record${count !== 1 ? "s" : ""}`;
+}
+
+// ============================================================
+// TAXON LIST UI
+// ============================================================
+
+function buildTaxonList(filter = "") {
+  const taxonNames = [...new Set(allFeatures.map(f => f.properties.taxon))].sort();
+  const filtered = filter
+    ? taxonNames.filter(n => n.toLowerCase().includes(filter.toLowerCase()))
+    : taxonNames;
+
+  const ul = document.getElementById("taxon-list");
+  ul.innerHTML = "";
+
+  filtered.slice(0, 80).forEach(name => {
+    const li = document.createElement("li");
+    if (name === state.selectedTaxon) li.classList.add("active");
+    const dot = document.createElement("span");
+    dot.className = "taxon-dot";
+    dot.style.background = getSpeciesColor(name);
+    li.appendChild(dot);
+    li.appendChild(document.createTextNode(name));
+    li.addEventListener("click", () => {
+      if (state.selectedTaxon === name) {
+        state.selectedTaxon = null;
+      } else {
+        state.selectedTaxon = name;
+      }
+      buildTaxonList(document.getElementById("taxon-search").value);
+      updateTaxonCard();
+      renderMarkers();
+      if (state.selectedTaxon) fitToTaxon(state.selectedTaxon);
+    });
+    ul.appendChild(li);
+  });
+
+  if (filtered.length > 80) {
+    const li = document.createElement("li");
+    li.textContent = `…${filtered.length - 80} more, refine search`;
+    li.style.color = "var(--text-dim)";
+    li.style.fontStyle = "normal";
+    ul.appendChild(li);
+  }
+}
+
+function updateTaxonCard() {
+  const card = document.getElementById("taxon-card");
+  if (!state.selectedTaxon) {
+    card.className = "";
+    card.innerHTML = "";
+    return;
+  }
+  const meta = taxaMetadata[state.selectedTaxon] || {};
+  const herbCount = allFeatures.filter(f => f.properties.taxon === state.selectedTaxon && f.properties.source === "herbarium").length;
+  const inatCount = allFeatures.filter(f => f.properties.taxon === state.selectedTaxon && f.properties.source === "inat").length;
+  const esa  = meta.esa_status  ? `<span class="badge badge-esa">${meta.esa_status}</span>` : "—";
+  const nvs  = meta.nv_state_status ? `<span class="badge badge-nv">${meta.nv_state_status}</span>` : "—";
+  const ecat = meta.endemism_category || "endemic";
+
+  card.className = "visible";
+  card.innerHTML = `
+    <div class="tc-name">${state.selectedTaxon}</div>
+    <div class="tc-row"><span class="tc-label">Category</span><span class="tc-val"><span class="badge badge-${ecat}">${ecat}</span></span></div>
+    <div class="tc-row"><span class="tc-label">ESA Status</span><span class="tc-val">${esa}</span></div>
+    <div class="tc-row"><span class="tc-label">NV Status</span><span class="tc-val">${nvs}</span></div>
+    <div class="tc-row"><span class="tc-label">Book Category</span><span class="tc-val">${meta.book_thematic_category || "—"}</span></div>
+    <div class="tc-row"><span class="tc-label">Region</span><span class="tc-val">${meta.physiographic_region || "—"}</span></div>
+    <div class="tc-row"><span class="tc-label">Section</span><span class="tc-val">${meta.physiographic_section || "—"}</span></div>
+    <div class="tc-row"><span class="tc-label">Herbarium</span><span class="tc-val">${herbCount} records</span></div>
+    <div class="tc-row"><span class="tc-label">iNaturalist</span><span class="tc-val">${inatCount} obs.</span></div>
+    ${meta.notes ? `<div class="tc-row"><span class="tc-label">Notes</span><span class="tc-val">${meta.notes}</span></div>` : ""}
+  `;
+}
+
+// ============================================================
+// FIT MAP TO TAXON
+// ============================================================
+
+function fitToTaxon(taxon) {
+  const pts = allFeatures
+    .filter(f => f.properties.taxon === taxon)
+    .map(f => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
+  if (pts.length) {
+    try { map.fitBounds(L.latLngBounds(pts).pad(0.2)); }
+    catch(e) { map.setView(pts[0], 10); }
+  }
+}
+
+// ============================================================
+// THEME CHIPS (dynamic)
+// ============================================================
+
+function buildThemeChips() {
+  const themes = new Set(
+    allFeatures.map(f => f.properties.book_thematic_category || "").filter(Boolean)
+  );
+  state.themes = new Set([...themes, ""]);  // "" = uncategorized
+
+  const container = document.getElementById("theme-chips");
+  container.innerHTML = "";
+
+  const allBtn = document.createElement("button");
+  allBtn.className = "chip on";
+  allBtn.textContent = "All";
+  allBtn.addEventListener("click", () => {
+    state.themes = new Set([...themes, ""]);
+    document.querySelectorAll("#theme-chips .chip").forEach(c => c.classList.add("on"));
+    renderMarkers();
+  });
+  container.appendChild(allBtn);
+
+  [...themes].sort().forEach(theme => {
+    const btn = document.createElement("button");
+    btn.className = "chip on";
+    btn.textContent = theme || "(uncategorized)";
+    btn.dataset.theme = theme;
+    btn.addEventListener("click", () => {
+      if (state.themes.has(theme)) {
+        state.themes.delete(theme);
+        btn.classList.remove("on");
+      } else {
+        state.themes.add(theme);
+        btn.classList.add("on");
+      }
+      renderMarkers();
+    });
+    container.appendChild(btn);
+  });
+}
+
+// ============================================================
+// GENUS SELECT
+// ============================================================
+
+function buildGenusSelect() {
+  const genera = [...new Set(allFeatures.map(f => f.properties.genus || "").filter(Boolean))].sort();
+  const sel = document.getElementById("genus-select");
+  genera.forEach(g => {
+    const opt = document.createElement("option");
+    opt.value = g; opt.textContent = g;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.genus = sel.value;
+    renderMarkers();
+  });
+}
+
+// ============================================================
+// PHYSIOGRAPHIC REGION / SECTION SELECTS (cascading)
+// ============================================================
+
+// Maps region name -> Set of section names that belong to it, built from data
+let regionToSections = new Map();
+
+function buildRegionSelects() {
+  // Regions/sections can contain compound values like "Central Great Basin / Northern Great Basin"
+  // separated by " / " — split and dedupe so the dropdown lists clean individual options.
+  // We pair each region with its matching section(s) by position when both are compound,
+  // so the section dropdown can cascade off the chosen region.
+  const regionSet = new Set();
+  regionToSections = new Map();
+
+  allFeatures.forEach(f => {
+    const rRaw = f.properties.physiographic_region || "";
+    const sRaw = f.properties.physiographic_section || "";
+    const regions = rRaw.split("/").map(x => x.trim()).filter(Boolean);
+    const sections = sRaw.split("/").map(x => x.trim()).filter(Boolean);
+
+    regions.forEach(r => regionSet.add(r));
+
+    // Pair regions with sections: if counts match, pair by index (compound values
+    // were written in matching order, e.g. "A / B" region with "Section1 / Section2").
+    // If counts don't match (e.g. one region, multiple sections), associate every
+    // section with every region as a reasonable fallback.
+    regions.forEach((r, i) => {
+      if (!regionToSections.has(r)) regionToSections.set(r, new Set());
+      if (regions.length === sections.length) {
+        if (sections[i]) regionToSections.get(r).add(sections[i]);
+      } else {
+        sections.forEach(s => regionToSections.get(r).add(s));
+      }
+    });
+  });
+
+  const regionSel = document.getElementById("region-select");
+  const sectionSel = document.getElementById("section-select");
+
+  [...regionSet].sort().forEach(r => {
+    const opt = document.createElement("option");
+    opt.value = r; opt.textContent = r;
+    regionSel.appendChild(opt);
+  });
+
+  function rebuildSectionOptions() {
+    // Clear all but the "All sections" placeholder
+    sectionSel.innerHTML = '<option value="">All sections</option>';
+    let sectionsToShow;
+    if (state.region && regionToSections.has(state.region)) {
+      sectionsToShow = [...regionToSections.get(state.region)];
+    } else {
+      // No region chosen — show every section across all regions
+      sectionsToShow = [...new Set([...regionToSections.values()].flatMap(s => [...s]))];
+    }
+    sectionsToShow.sort().forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s; opt.textContent = s;
+      sectionSel.appendChild(opt);
+    });
+  }
+
+  rebuildSectionOptions();
+
+  regionSel.addEventListener("change", () => {
+    state.region = regionSel.value;
+    state.section = "";       // reset section choice when region changes
+    rebuildSectionOptions();
+    renderMarkers();
+  });
+  sectionSel.addEventListener("change", () => {
+    state.section = sectionSel.value;
+    renderMarkers();
+  });
+}
+
+// ============================================================
+// EXPORT (GeoJSON → Gaia GPS compatible)
+// ============================================================
+
+function exportFiltered() {
+  const features = allFeatures.filter(featureVisible);
+  const geojson = { type: "FeatureCollection", features };
+  const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: "application/geo+json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const suffix = state.selectedTaxon
+    ? state.selectedTaxon.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g,"")
+    : "filtered";
+  a.download = `nv_endemics_${suffix}.geojson`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportFilteredCSV() {
+  const features = allFeatures.filter(featureVisible);
+  if (features.length === 0) { alert("No records match the current filters."); return; }
+
+  // Union of all property keys actually present, so the CSV header adapts
+  // to whatever mix of herbarium/iNat fields are in the filtered set.
+  const keySet = new Set(["latitude", "longitude"]);
+  features.forEach(f => Object.keys(f.properties).forEach(k => keySet.add(k)));
+  const headers = [...keySet];
+
+  const escapeCsv = (val) => {
+    if (val === null || val === undefined) return "";
+    const s = String(val);
+    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  };
+
+  const lines = [headers.join(",")];
+  features.forEach(f => {
+    const lon = f.geometry.coordinates[0];
+    const lat = f.geometry.coordinates[1];
+    const row = headers.map(h => {
+      if (h === "latitude") return lat.toFixed(6);
+      if (h === "longitude") return lon.toFixed(6);
+      return escapeCsv(f.properties[h]);
+    });
+    lines.push(row.join(","));
+  });
+
+  const csvContent = lines.join("\r\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const suffix = state.selectedTaxon
+    ? state.selectedTaxon.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g,"")
+    : "filtered";
+  a.download = `nv_endemics_${suffix}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// CHIP TOGGLE HELPERS
+// ============================================================
+
+function wireChips(selector, stateSet) {
+  document.querySelectorAll(selector).forEach(btn => {
+    btn.addEventListener("click", () => {
+      const val = btn.dataset.val || btn.dataset.filter || btn.dataset.grade;
+      if (stateSet.has(val)) {
+        stateSet.delete(val);
+        btn.classList.remove("on");
+      } else {
+        stateSet.add(val);
+        btn.classList.add("on");
+      }
+      renderMarkers();
+    });
+  });
+}
+
+// ============================================================
+// INIT
+// ============================================================
+
+async function init() {
+  // Map
+  map = L.map("map", {
+    center: [39.5, -116.5],
+    zoom: 7,
+    zoomControl: true,
+  });
+
+  // Basemap — USGS Topo (good for field use)
+  L.tileLayer(
+    "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+    { attribution: "USGS National Map", maxZoom: 16 }
+  ).addTo(map);
+
+  // Satellite toggle
+  const satellite = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { attribution: "Esri World Imagery", maxZoom: 19 }
+  );
+  L.control.layers(
+    { "USGS Topo": map._layers[Object.keys(map._layers)[0]], "Satellite": satellite },
+    {},
+    { position: "topright" }
+  ).addTo(map);
+
+  clusterGroup = L.markerClusterGroup({
+    maxClusterRadius: 40,
+    disableClusteringAtZoom: 12,
+    spiderfyOnMaxZoom: true,
+  });
+  map.addLayer(clusterGroup);
+
+  // Load data — always attempt the real GeoJSON/metadata first.
+  // Falls back to demo data only if the fetch fails or returns no features
+  // (e.g. fetch_occurrences.py hasn't been run yet).
+  let features = [];
+  let meta = {};
+  let usedDemo = false;
+  try {
+    const [geoResp, metaResp] = await Promise.all([
+      fetch(CONFIG.occurrencesUrl),
+      fetch(CONFIG.taxaMetaUrl),
+    ]);
+    if (!geoResp.ok || !metaResp.ok) {
+      throw new Error(`HTTP ${geoResp.status}/${metaResp.status}`);
+    }
+    const geo = await geoResp.json();
+    meta       = await metaResp.json();
+    features   = geo.features || [];
+  } catch(e) {
+    console.warn("Could not load real data, falling back to demo data:", e);
+  }
+
+  if (features.length === 0) {
+    // Use demo data
+    features = generateDemoData();
+    usedDemo = true;
+  } else {
+    taxaMetadata = meta;
+  }
+
+  allFeatures = features;
+
+  // Pre-assign colors for all taxa in stable alphabetical order
+  [...new Set(features.map(f => f.properties.taxon))].sort().forEach(getSpeciesColor);
+
+  buildTaxonList();
+  buildThemeChips();
+  buildGenusSelect();
+  buildRegionSelects();
+  renderMarkers();
+
+  // ── Wire controls ──
+
+  document.getElementById("taxon-search").addEventListener("input", e => {
+    buildTaxonList(e.target.value);
+  });
+
+  wireChips("#endemism-chips .chip", state.endemism);
+  wireChips("[data-filter]", state.statusFilters);
+  wireChips("[data-grade]", state.grades);
+
+  document.getElementById("accuracy-select").addEventListener("change", (e) => {
+    state.maxAccuracyM = Number(e.target.value);
+    renderMarkers();
+  });
+  document.getElementById("exclude-obscured").addEventListener("change", (e) => {
+    state.excludeObscured = e.target.checked;
+    renderMarkers();
+  });
+
+  ["src-herbarium","src-inat"].forEach(id => {
+    const btn = document.getElementById(id);
+    const src = id === "src-herbarium" ? "herbarium" : "inat";
+    btn.addEventListener("click", () => {
+      if (state.sources.has(src)) {
+        state.sources.delete(src);
+        btn.classList.remove("on");
+      } else {
+        state.sources.add(src);
+        btn.classList.add("on");
+      }
+      renderMarkers();
+    });
+  });
+
+  document.getElementById("export-btn").addEventListener("click", exportFiltered);
+  document.getElementById("export-csv-btn").addEventListener("click", exportFilteredCSV);
+
+  document.getElementById("clear-btn").addEventListener("click", () => {
+    state.selectedTaxon = null;
+    state.endemism = new Set(["endemic","near-endemic","disjunct"]);
+    state.sources  = new Set(["herbarium","inat"]);
+    state.statusFilters = new Set(["esa","nv","unlisted"]);
+    state.grades   = new Set(["research","needs_id","casual"]);
+    state.genus    = "";
+    state.region   = "";
+    state.section  = "";
+    state.maxAccuracyM = 0;
+    state.excludeObscured = false;
+    document.querySelectorAll(".chip").forEach(c => c.classList.add("on"));
+    document.querySelectorAll(".src-btn").forEach(b => b.classList.add("on"));
+    document.getElementById("genus-select").value = "";
+    document.getElementById("region-select").value = "";
+    document.getElementById("section-select").value = "";
+    document.getElementById("accuracy-select").value = "0";
+    document.getElementById("exclude-obscured").checked = false;
+    document.getElementById("taxon-search").value = "";
+    buildTaxonList();
+    updateTaxonCard();
+    renderMarkers();
+  });
+
+  document.getElementById("toggle-panel-btn").addEventListener("click", () => {
+    document.getElementById("panel").classList.toggle("hidden");
+    document.getElementById("map").classList.toggle("full");
+    setTimeout(() => map.invalidateSize(), 300);
+  });
+
+  // Hide loading
+  document.getElementById("loading").style.display = "none";
+
+  if (usedDemo) {
+    // Show a notice about demo mode
+    const note = L.control({ position: "bottomleft" });
+    note.onAdd = () => {
+      const d = L.DomUtil.create("div");
+      d.style.cssText = "background:rgba(34,37,42,0.9);color:#c8a85a;padding:6px 10px;border-radius:4px;font-size:11px;border:1px solid #c8a85a;max-width:260px;";
+      d.innerHTML = "⚠ Demo mode — synthetic data shown.<br>Run <code>fetch_occurrences.py</code> to populate real records.";
+      return d;
+    };
+    note.addTo(map);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
