@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Nevada Endemic Plants</title>
 
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#22252a">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+
 <!-- Leaflet -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -231,6 +237,30 @@
   .badge-near-endemic{ background: #3a4030; color: #8ac49a; }
   .badge-disjunct    { background: #3a3040; color: #c4a0d4; }
 
+  /* Area filter */
+  #draw-area-btn {
+    width: 100%; padding: 8px;
+    background: rgba(200,168,90,0.15); border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #draw-area-btn:hover { background: rgba(200,168,90,0.3); }
+  #draw-area-btn.active { background: var(--accent); color: var(--bg); }
+  #area-status {
+    display: none; align-items: center; justify-content: space-between;
+    margin-top: 8px; padding: 6px 10px;
+    background: rgba(200,168,90,0.1); border: 1px solid var(--panel-border);
+    border-radius: 4px; font-size: 11px; color: var(--accent);
+  }
+  #area-status.visible { display: flex; }
+  #clear-area-btn {
+    background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 13px; padding: 0 0 0 8px; line-height: 1;
+  }
+  #clear-area-btn:hover { color: var(--accent); }
+
   /* Export */
   #export-btn {
     width: 100%; padding: 8px;
@@ -322,6 +352,18 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 3px; }
 
+  /* Offline base-map caching progress — small, unobtrusive, bottom-right.
+     Hidden (empty/no content) once caching is done or not running. */
+  #offline-cache-status {
+    position: fixed; bottom: 10px; right: 10px;
+    background: rgba(34,37,42,0.92); color: var(--accent);
+    border: 1px solid var(--panel-border); border-radius: 5px;
+    padding: 6px 10px; font-size: 11px;
+    z-index: 1500; display: none;
+    max-width: 240px;
+  }
+  #offline-cache-status.visible { display: block; }
+
   /* ── Mobile (narrow viewport) ──
      Triggers on viewport width, not device detection — applies any time the
      browser window is this narrow, including a resized desktop window. */
@@ -351,6 +393,7 @@
     /* Larger touch targets for filter chips and toggle buttons */
     .chip { padding: 7px 13px; font-size: 12.5px; }
     .src-btn { padding: 10px; font-size: 12px; }
+    #clear-area-btn { padding: 6px 4px 6px 10px; font-size: 15px; }
     #toggle-panel-btn { padding: 7px 12px; font-size: 14px; }
     #taxon-list li, #place-list li { padding: 8px 6px; font-size: 13px; }
     #taxon-search, #place-search { padding: 9px 10px; font-size: 13px; }
@@ -365,6 +408,8 @@
   <div class="spinner"></div>
   <p>Loading occurrence data…</p>
 </div>
+
+<div id="offline-cache-status"></div>
 
 <!-- Header -->
 <div id="header">
@@ -388,6 +433,17 @@
     <h2>Go to Place</h2>
     <input type="text" id="place-search" placeholder="Mountain range, valley, park…" autocomplete="off"/>
     <ul id="place-list"></ul>
+  </div>
+
+  <!-- Area filter — draw a box on the map; only points inside it pass
+       every other filter too. Complements taxon-level region/section. -->
+  <div class="panel-section">
+    <h2>Area Filter</h2>
+    <button id="draw-area-btn">▭ Draw Box on Map</button>
+    <div id="area-status">
+      <span id="area-status-text"></span>
+      <button id="clear-area-btn" title="Clear area filter">✕</button>
+    </div>
   </div>
 
   <!-- Taxon search & list -->
@@ -538,8 +594,129 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-06-21-v2-mobile-responsive-layout";
+const SCRIPT_VERSION = "2026-06-22-v4-draw-area-filter";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
+
+// ============================================================
+// OFFLINE / PWA
+// ============================================================
+// Three parts:
+//  1. Register the service worker (handles all the caching strategies —
+//     see service-worker.js).
+//  2. Ask the browser not to evict our cached data under storage pressure.
+//  3. Bulk-precache a statewide USGS Topo basemap at low/medium zoom
+//     (z6–12, ~140–235MB) the first time the page loads with a network
+//     connection, so basic geographic context is available everywhere in
+//     Nevada even with zero signal. This runs once — a flag in
+//     localStorage prevents repeating it on every visit. High-detail,
+//     per-trip map work is intentionally NOT handled here; that stays
+//     with the GeoJSON export → Gaia GPS workflow.
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("service-worker.js").catch((e) => {
+      console.warn("Service worker registration failed:", e);
+    });
+  });
+}
+
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().then((granted) => {
+    console.log(granted ? "Persistent storage granted." : "Persistent storage not granted (cache may be evicted under storage pressure).");
+  });
+}
+
+// Nevada bounding box — generous overestimate is fine; extra tiles outside
+// the state border just get cached too, no harm done.
+const NV_BBOX = { latMin: 35.0, latMax: 42.0, lonMin: -120.0, lonMax: -114.0 };
+const TOPO_PRECACHE_MIN_ZOOM = 6;
+const TOPO_PRECACHE_MAX_ZOOM = 12;
+// Bump this if you ever change the bbox or zoom range above, so returning
+// visitors re-run the precache instead of assuming the old run covers it.
+const TOPO_CACHE_VERSION = "v1";
+const TOPO_CACHE_NAME = `nv-endemics-topo-tiles-${TOPO_CACHE_VERSION}`; // must match service-worker.js
+const TOPO_TILE_URL = (z, x, y) =>
+  `https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/${z}/${y}/${x}`;
+
+function latLonToTile(lat, lon, z) {
+  const latRad = (lat * Math.PI) / 180;
+  const n = Math.pow(2, z);
+  const x = Math.floor(((lon + 180) / 360) * n);
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n
+  );
+  return { x, y };
+}
+
+function buildTopoTileList() {
+  const tiles = [];
+  for (let z = TOPO_PRECACHE_MIN_ZOOM; z <= TOPO_PRECACHE_MAX_ZOOM; z++) {
+    const nw = latLonToTile(NV_BBOX.latMax, NV_BBOX.lonMin, z);
+    const se = latLonToTile(NV_BBOX.latMin, NV_BBOX.lonMax, z);
+    for (let x = nw.x; x <= se.x; x++) {
+      for (let y = nw.y; y <= se.y; y++) tiles.push({ z, x, y });
+    }
+  }
+  return tiles;
+}
+
+function setOfflineCacheStatus(text) {
+  const el = document.getElementById("offline-cache-status");
+  if (!el) return;
+  if (!text) {
+    el.classList.remove("visible");
+    el.textContent = "";
+  } else {
+    el.classList.add("visible");
+    el.textContent = text;
+  }
+}
+
+async function precacheTopoTiles() {
+  if (!("caches" in window) || !navigator.onLine) return;
+  if (localStorage.getItem("nvTopoCacheDone") === TOPO_CACHE_VERSION) return;
+
+  const tiles = buildTopoTileList();
+  const cache = await caches.open(TOPO_CACHE_NAME);
+  const CONCURRENCY = 6;
+  let nextIdx = 0;
+  let done = 0;
+  let failures = 0;
+
+  setOfflineCacheStatus(`Caching offline base map: 0 / ${tiles.length}`);
+
+  async function worker() {
+    while (nextIdx < tiles.length) {
+      const i = nextIdx++;
+      const { z, x, y } = tiles[i];
+      const url = TOPO_TILE_URL(z, x, y);
+      try {
+        const existing = await cache.match(url);
+        if (!existing) {
+          const resp = await fetch(url);
+          if (resp.ok) await cache.put(url, resp);
+          else failures++;
+        }
+      } catch (e) {
+        failures++; // likely lost connection mid-run; safe to retry next session
+      }
+      done++;
+      if (done % 25 === 0 || done === tiles.length) {
+        setOfflineCacheStatus(`Caching offline base map: ${done} / ${tiles.length}`);
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+
+  if (failures === 0) {
+    localStorage.setItem("nvTopoCacheDone", TOPO_CACHE_VERSION);
+    setOfflineCacheStatus("Offline base map ready.");
+  } else {
+    setOfflineCacheStatus(`Offline base map: ${tiles.length - failures} / ${tiles.length} cached (connection dropped — will finish next time you're online).`);
+  }
+  setTimeout(() => setOfflineCacheStatus(null), 4000);
+}
 
 // ============================================================
 // CONFIG & STATE
@@ -581,11 +758,15 @@ const state = {
   maxAccuracyM: 0,         // 0 = no filter; otherwise max allowed positional_accuracy_m
   excludeObscured: false,
   themes: new Set(),  // populated from data
+  areaBounds: null,   // L.LatLngBounds | null — set by the draw-a-box area filter
 };
 
 // Leaflet objects
 let map, clusterGroup;
 let markersByFeature = new Map();
+let areaRectLayer = null;     // the drawn rectangle, once one exists
+let drawingArea = false;      // true while the user is actively dragging out a box
+let drawStartLatLng = null;
 
 // ============================================================
 // DEMO DATA — synthetic points when real GeoJSON not available
@@ -868,6 +1049,14 @@ function featureVisible(f) {
   if (state.region && !(p.physiographic_region || "").includes(state.region)) return false;
   if (state.section && !(p.physiographic_section || "").includes(state.section)) return false;
 
+  // Point-level area filter (the draw-a-box tool) — unlike region/section
+  // above, this checks the ACTUAL coordinates of this specific occurrence,
+  // not a taxon-level range description. This is the point-level spatial
+  // filter referenced in the comment above.
+  if (state.areaBounds && !state.areaBounds.contains(f.geometry.coordinates.slice().reverse())) {
+    return false;
+  }
+
   // status
   const hasEsa = p.esa_status && p.esa_status.trim();
   const hasNv  = p.nv_state_status && p.nv_state_status.trim();
@@ -901,6 +1090,131 @@ function featureVisible(f) {
 // ============================================================
 // RENDER MARKERS
 // ============================================================
+
+// ============================================================
+// AREA FILTER (draw-a-box)
+// ============================================================
+// One drag on the map defines a rectangle; only points inside it pass
+// featureVisible() (see the check there). Supports mouse AND touch —
+// touch drags don't generate live native 'mousemove' events on most
+// mobile browsers, so touch is handled with its own listeners rather
+// than relying on Leaflet's synthetic mouse events.
+
+let drawPreviewLayer = null; // live rectangle while actively dragging
+
+function getLatLngFromEvent(e) {
+  if (e.touches && e.touches.length) return map.mouseEventToLatLng(e.touches[0]);
+  if (e.changedTouches && e.changedTouches.length) return map.mouseEventToLatLng(e.changedTouches[0]);
+  return map.mouseEventToLatLng(e);
+}
+
+function setAreaStatus(text) {
+  const el = document.getElementById("area-status");
+  document.getElementById("area-status-text").textContent = text || "";
+  el.classList.toggle("visible", !!text);
+}
+
+function setDrawButtonActive(active) {
+  const btn = document.getElementById("draw-area-btn");
+  btn.classList.toggle("active", active);
+  btn.textContent = active ? "Drag on map… (tap to cancel)" : "▭ Draw Box on Map";
+}
+
+function startAreaDraw() {
+  drawingArea = true;
+  setDrawButtonActive(true);
+  map.dragging.disable();
+  // On mobile, the panel overlays the map (see the responsive breakpoint
+  // above) — close it so there's actually a map visible to draw on.
+  if (window.innerWidth <= 768) {
+    document.getElementById("panel").classList.add("hidden");
+  }
+  const c = map.getContainer();
+  c.style.cursor = "crosshair";
+  c.addEventListener("mousedown", onAreaDrawStart);
+  c.addEventListener("touchstart", onAreaDrawStart, { passive: false });
+}
+
+function cancelAreaDraw() {
+  drawingArea = false;
+  setDrawButtonActive(false);
+  map.dragging.enable();
+  const c = map.getContainer();
+  c.style.cursor = "";
+  c.removeEventListener("mousedown", onAreaDrawStart);
+  c.removeEventListener("touchstart", onAreaDrawStart);
+  c.removeEventListener("mousemove", onAreaDrawMove);
+  c.removeEventListener("touchmove", onAreaDrawMove);
+  c.removeEventListener("mouseup", onAreaDrawEnd);
+  c.removeEventListener("touchend", onAreaDrawEnd);
+  if (drawPreviewLayer) { map.removeLayer(drawPreviewLayer); drawPreviewLayer = null; }
+  drawStartLatLng = null;
+}
+
+function onAreaDrawStart(e) {
+  if (e.touches && e.touches.length > 1) return; // let pinch-zoom through
+  e.preventDefault();
+  drawStartLatLng = getLatLngFromEvent(e);
+  drawPreviewLayer = L.rectangle([drawStartLatLng, drawStartLatLng], {
+    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.12, dashArray: "4,3",
+  }).addTo(map);
+
+  const c = map.getContainer();
+  c.addEventListener("mousemove", onAreaDrawMove);
+  c.addEventListener("touchmove", onAreaDrawMove, { passive: false });
+  c.addEventListener("mouseup", onAreaDrawEnd);
+  c.addEventListener("touchend", onAreaDrawEnd);
+}
+
+function onAreaDrawMove(e) {
+  if (e.touches && e.touches.length > 1) return;
+  if (!drawPreviewLayer || !drawStartLatLng) return;
+  e.preventDefault();
+  drawPreviewLayer.setBounds(L.latLngBounds(drawStartLatLng, getLatLngFromEvent(e)));
+}
+
+function onAreaDrawEnd(e) {
+  if (!drawStartLatLng) return;
+  const bounds = L.latLngBounds(drawStartLatLng, getLatLngFromEvent(e));
+
+  const c = map.getContainer();
+  c.removeEventListener("mousedown", onAreaDrawStart);
+  c.removeEventListener("touchstart", onAreaDrawStart);
+  c.removeEventListener("mousemove", onAreaDrawMove);
+  c.removeEventListener("touchmove", onAreaDrawMove);
+  c.removeEventListener("mouseup", onAreaDrawEnd);
+  c.removeEventListener("touchend", onAreaDrawEnd);
+  map.dragging.enable();
+  c.style.cursor = "";
+  drawingArea = false;
+  setDrawButtonActive(false);
+  if (drawPreviewLayer) { map.removeLayer(drawPreviewLayer); drawPreviewLayer = null; }
+
+  // Ignore accidental taps/clicks with no real drag distance — leave any
+  // pre-existing area filter untouched in that case.
+  const trivial = bounds.getNorth() === bounds.getSouth() || bounds.getEast() === bounds.getWest();
+  drawStartLatLng = null;
+  if (trivial) return;
+
+  if (areaRectLayer) map.removeLayer(areaRectLayer);
+  areaRectLayer = L.rectangle(bounds, {
+    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.08,
+  }).addTo(map);
+
+  state.areaBounds = bounds;
+  setAreaStatus(
+    `Area active: ${bounds.getSouth().toFixed(2)}, ${bounds.getWest().toFixed(2)} → ` +
+    `${bounds.getNorth().toFixed(2)}, ${bounds.getEast().toFixed(2)}`
+  );
+  renderMarkers();
+}
+
+function clearAreaFilter() {
+  state.areaBounds = null;
+  if (areaRectLayer) { map.removeLayer(areaRectLayer); areaRectLayer = null; }
+  setAreaStatus(null);
+  renderMarkers();
+}
 
 function renderMarkers() {
   clusterGroup.clearLayers();
@@ -1532,6 +1846,10 @@ async function init() {
   });
 
   document.getElementById("export-btn").addEventListener("click", exportFiltered);
+  document.getElementById("draw-area-btn").addEventListener("click", () => {
+    if (drawingArea) cancelAreaDraw(); else startAreaDraw();
+  });
+  document.getElementById("clear-area-btn").addEventListener("click", clearAreaFilter);
   document.getElementById("export-csv-btn").addEventListener("click", exportFilteredCSV);
 
   document.getElementById("clear-btn").addEventListener("click", () => {
@@ -1566,6 +1884,11 @@ async function init() {
 
   // Hide loading
   document.getElementById("loading").style.display = "none";
+
+  // One-time statewide low-zoom basemap precache for offline use (no-op if
+  // already done, or if there's no connection right now). Fire-and-forget —
+  // doesn't block the UI.
+  precacheTopoTiles();
 
   if (usedDemo) {
     // Show a notice about demo mode
