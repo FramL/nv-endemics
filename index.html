@@ -237,6 +237,25 @@
   .badge-near-endemic{ background: #3a4030; color: #8ac49a; }
   .badge-disjunct    { background: #3a3040; color: #c4a0d4; }
 
+  /* Offline base map */
+  .panel-note {
+    font-size: 11px; color: var(--text-dim); line-height: 1.4;
+    margin: 0 0 8px 0;
+  }
+  #download-offline-map-btn {
+    width: 100%; padding: 8px;
+    background: rgba(200,168,90,0.15); border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #download-offline-map-btn:hover { background: rgba(200,168,90,0.3); }
+  #download-offline-map-btn:disabled {
+    opacity: 0.6; cursor: default; background: rgba(106,158,127,0.15);
+    border-color: var(--accent2); color: var(--accent2);
+  }
+
   /* Area filter */
   #draw-area-btn {
     width: 100%; padding: 8px;
@@ -281,6 +300,16 @@
     transition: all 0.15s;
   }
   #export-csv-btn:hover { background: rgba(106,158,127,0.3); }
+
+  #export-gpx-btn {
+    width: 100%; padding: 8px;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #export-gpx-btn:hover { background: rgba(106,158,127,0.3); }
 
   #clear-btn {
     width: 100%; padding: 6px;
@@ -575,10 +604,18 @@
     </div>
   </div>
 
+  <!-- Offline base map — explicitly opt-in, never runs automatically. -->
+  <div class="panel-section">
+    <h2>Offline Base Map</h2>
+    <p class="panel-note">Caches a statewide low-detail USGS Topo basemap (~140&ndash;235MB, one-time) so the map background still shows with no signal. Nothing downloads unless you click below &mdash; do this once, on Wi-Fi.</p>
+    <button id="download-offline-map-btn">⬇ Download Offline Base Map</button>
+  </div>
+
   <!-- Export -->
   <div class="panel-section">
     <h2>Export</h2>
     <button id="export-btn">⬇ GeoJSON (for Gaia GPS)</button>
+    <button id="export-gpx-btn" style="margin-top:6px;">⬇ GPX (alternative for Gaia)</button>
     <button id="export-csv-btn" style="margin-top:6px;">⬇ CSV (coordinates + data)</button>
     <button id="clear-btn">Clear all filters</button>
   </div>
@@ -594,7 +631,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-06-22-v4-draw-area-filter";
+const SCRIPT_VERSION = "2026-06-22-v7-gpx-export";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -673,8 +710,18 @@ function setOfflineCacheStatus(text) {
 }
 
 async function precacheTopoTiles() {
-  if (!("caches" in window) || !navigator.onLine) return;
-  if (localStorage.getItem("nvTopoCacheDone") === TOPO_CACHE_VERSION) return;
+  const btn = document.getElementById("download-offline-map-btn");
+
+  if (!("caches" in window)) {
+    alert("Your browser doesn't support offline caching.");
+    return;
+  }
+  if (!navigator.onLine) {
+    alert("You're offline right now — connect to Wi-Fi or data and try again.");
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = "Caching…"; }
 
   const tiles = buildTopoTileList();
   const cache = await caches.open(TOPO_CACHE_NAME);
@@ -701,6 +748,7 @@ async function precacheTopoTiles() {
         failures++; // likely lost connection mid-run; safe to retry next session
       }
       done++;
+      if (btn) btn.textContent = `Caching… ${done} / ${tiles.length}`;
       if (done % 25 === 0 || done === tiles.length) {
         setOfflineCacheStatus(`Caching offline base map: ${done} / ${tiles.length}`);
       }
@@ -712,8 +760,10 @@ async function precacheTopoTiles() {
   if (failures === 0) {
     localStorage.setItem("nvTopoCacheDone", TOPO_CACHE_VERSION);
     setOfflineCacheStatus("Offline base map ready.");
+    if (btn) { btn.disabled = false; btn.textContent = "✓ Offline Base Map Ready (click to re-check)"; }
   } else {
-    setOfflineCacheStatus(`Offline base map: ${tiles.length - failures} / ${tiles.length} cached (connection dropped — will finish next time you're online).`);
+    setOfflineCacheStatus(`Offline base map: ${tiles.length - failures} / ${tiles.length} cached (connection dropped — try again when back online).`);
+    if (btn) { btn.disabled = false; btn.textContent = `⬇ Download Offline Base Map (${tiles.length - failures}/${tiles.length} done)`; }
   }
   setTimeout(() => setOfflineCacheStatus(null), 4000);
 }
@@ -1630,8 +1680,49 @@ function buildRegionSelects() {
 // EXPORT (GeoJSON → Gaia GPS compatible)
 // ============================================================
 
+// Builds a human-readable title + notes for one record, used when exporting
+// to GeoJSON so Gaia GPS waypoints aren't just "untitled" — mirrors the same
+// fields shown in the on-map popup (buildPopup above).
+function buildWaypointLabel(props) {
+  const isHerb = props.source === "herbarium";
+  const date = isHerb ? (props.collection_date || "date unknown") : (props.observed_on || "date unknown");
+  const sourceLabel = isHerb ? "Herbarium" : "iNat";
+  const title = `${props.taxon} — ${sourceLabel}, ${date}`;
+
+  const lines = [props.taxon, isHerb ? "Herbarium specimen" : "iNaturalist observation", `Date: ${date}`];
+
+  if (isHerb) {
+    lines.push(`Collector: ${props.collector || "—"}`);
+    lines.push(`Institution: ${props.institution || "—"}`);
+    if (props.county) lines.push(`County: ${props.county}`);
+    if (props.locality) lines.push(`Locality: ${props.locality}`);
+  } else {
+    lines.push(`Observer: ${props.observer || "—"}`);
+    lines.push(`Quality grade: ${props.quality_grade || "—"}`);
+    if (props.place_guess) lines.push(`Place: ${props.place_guess}`);
+    const acc = props.positional_accuracy_m;
+    lines.push(`GPS accuracy: ${(acc === "" || acc === null || acc === undefined) ? "not reported" : "±" + Math.round(acc) + " m"}`);
+    if (props.coordinates_obscured) {
+      lines.push("\u26a0 Coordinates obscured by iNat (geoprivacy) \u2014 may be offset by several km.");
+    }
+  }
+
+  lines.push(`Endemism: ${props.endemism_category || "endemic"}`);
+  if (props.esa_status) lines.push(`ESA status: ${props.esa_status}`);
+  if (props.nv_state_status) lines.push(`NV state status: ${props.nv_state_status}`);
+  if (props.url) lines.push(`Record: ${props.url}`);
+
+  return { title, notes: lines.join("\n") };
+}
+
 function exportFiltered() {
-  const features = allFeatures.filter(featureVisible);
+  // title/name and notes/description are added on export only — both common
+  // names, since different apps (Gaia included) look for different keys.
+  // The rest of the app keeps using the original, unmodified properties.
+  const features = allFeatures.filter(featureVisible).map(f => {
+    const { title, notes } = buildWaypointLabel(f.properties);
+    return { ...f, properties: { ...f.properties, title, name: title, notes, description: notes } };
+  });
   const geojson = { type: "FeatureCollection", features };
   const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: "application/geo+json" });
   const url = URL.createObjectURL(blob);
@@ -1641,6 +1732,46 @@ function exportFiltered() {
     ? state.selectedTaxon.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g,"")
     : "filtered";
   a.download = `nv_endemics_${suffix}.geojson`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function escapeXml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+// GPX has a standardized <name>/<desc> element for waypoints — unlike
+// GeoJSON, there's no ambiguity about which property an importer reads.
+// Gaia's own docs recommend GPX over other formats, so this is the more
+// reliable option if titles/notes don't show up via the GeoJSON export.
+function exportFilteredGPX() {
+  const features = allFeatures.filter(featureVisible);
+  if (features.length === 0) { alert("No records match the current filters."); return; }
+
+  const wpts = features.map(f => {
+    const { title, notes } = buildWaypointLabel(f.properties);
+    const [lon, lat] = f.geometry.coordinates;
+    return `  <wpt lat="${lat}" lon="${lon}">
+    <name>${escapeXml(title)}</name>
+    <desc>${escapeXml(notes)}</desc>
+  </wpt>`;
+  }).join("\n");
+
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Nevada Endemics Map" xmlns="http://www.topografix.com/GPX/1/1">
+${wpts}
+</gpx>`;
+
+  const blob = new Blob([gpx], { type: "application/gpx+xml" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const suffix = state.selectedTaxon
+    ? state.selectedTaxon.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g,"")
+    : "filtered";
+  a.download = `nv_endemics_${suffix}.gpx`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -1846,10 +1977,12 @@ async function init() {
   });
 
   document.getElementById("export-btn").addEventListener("click", exportFiltered);
+  document.getElementById("export-gpx-btn").addEventListener("click", exportFilteredGPX);
   document.getElementById("draw-area-btn").addEventListener("click", () => {
     if (drawingArea) cancelAreaDraw(); else startAreaDraw();
   });
   document.getElementById("clear-area-btn").addEventListener("click", clearAreaFilter);
+  document.getElementById("download-offline-map-btn").addEventListener("click", precacheTopoTiles);
   document.getElementById("export-csv-btn").addEventListener("click", exportFilteredCSV);
 
   document.getElementById("clear-btn").addEventListener("click", () => {
@@ -1885,10 +2018,13 @@ async function init() {
   // Hide loading
   document.getElementById("loading").style.display = "none";
 
-  // One-time statewide low-zoom basemap precache for offline use (no-op if
-  // already done, or if there's no connection right now). Fire-and-forget —
-  // doesn't block the UI.
-  precacheTopoTiles();
+  // Offline base map is opt-in only — nothing downloads automatically.
+  // Just reflect current state on the button; the user triggers it
+  // themselves via the click listener below.
+  if (localStorage.getItem("nvTopoCacheDone") === TOPO_CACHE_VERSION) {
+    document.getElementById("download-offline-map-btn").textContent =
+      "✓ Offline Base Map Ready (click to re-check)";
+  }
 
   if (usedDemo) {
     // Show a notice about demo mode
