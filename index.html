@@ -8,6 +8,8 @@
 <!-- PWA -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#22252a">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/x-icon" href="icons/favicon.ico">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 
@@ -27,7 +29,7 @@
     --panel-bg:    #22252a;
     --panel-border:#2e333b;
     --text:        #d4cfc8;
-    --text-dim:    #7a7972;
+    --text-dim:    #a8a49c;
     --text-bright: #f0ece4;
     --accent:      #c8a85a;       /* desert gold */
     --accent2:     #6a9e7f;       /* sage green  */
@@ -46,6 +48,23 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 13px; }
+  /* Background image shows in the panel and header areas where map tiles
+     don't cover it. A separate faint overlay is added to the map via JS. */
+  #panel {
+    background-image: url("bg-primula.jpg");
+    background-size: cover;
+    background-position: center;
+    position: relative; /* needed for ::before absolute positioning */
+  }
+  #panel::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: var(--panel-bg);
+    opacity: 0.90;
+    pointer-events: none;
+    z-index: 0;
+  }
+  #panel > * { position: relative; z-index: 1; }
 
   /* ── Header ── */
   #header {
@@ -105,7 +124,6 @@
     position: fixed;
     top: calc(var(--header-h) + var(--ack-h)); bottom: 0; left: 0;
     width: var(--panel-w);
-    background: var(--panel-bg);
     border-right: 1px solid var(--panel-border);
     overflow-y: auto; overflow-x: hidden;
     z-index: 1000;
@@ -236,6 +254,35 @@
   .badge-endemic     { background: #3a4a5c; color: #8ab4d4; }
   .badge-near-endemic{ background: #3a4030; color: #8ac49a; }
   .badge-disjunct    { background: #3a3040; color: #c4a0d4; }
+
+  /* Area herbarium search */
+  .area-src-btn {
+    flex: 1; padding: 5px 8px; font-size: 11px; font-weight: 600;
+    border-radius: 4px; cursor: pointer; transition: all 0.15s;
+    background: rgba(200,168,90,0.08); border: 1px solid var(--panel-border);
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .area-src-btn.on { background: rgba(200,168,90,0.2); border-color: var(--accent); color: var(--accent); }
+  #area-search-draw-btn {
+    width: 100%; padding: 8px;
+    background: rgba(200,168,90,0.15); border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; transition: all 0.15s;
+  }
+  #area-search-draw-btn:hover { background: rgba(200,168,90,0.3); }
+  #area-search-draw-btn.active { background: var(--accent); color: var(--bg); }
+  #area-search-status {
+    margin-top: 8px; font-size: 11px; color: var(--text-dim);
+    line-height: 1.4; min-height: 0;
+  }
+  #area-search-clear-btn {
+    width: 100%; padding: 6px 8px;
+    background: rgba(200,168,90,0.08); border: 1px solid var(--panel-border);
+    color: var(--text-dim); border-radius: 4px;
+    cursor: pointer; font-size: 11px; transition: all 0.15s;
+  }
+  #area-search-clear-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   /* Offline base map */
   .panel-note {
@@ -468,7 +515,7 @@
        every other filter too. Complements taxon-level region/section. -->
   <div class="panel-section">
     <h2>Area Filter</h2>
-    <button id="draw-area-btn">▭ Draw Box on Map</button>
+    <button id="draw-area-btn">⬡ Draw Polygon on Map</button>
     <div id="area-status">
       <span id="area-status-text"></span>
       <button id="clear-area-btn" title="Clear area filter">✕</button>
@@ -611,6 +658,20 @@
     <button id="download-offline-map-btn">⬇ Download Offline Base Map</button>
   </div>
 
+  <!-- Area search — queries GBIF/iNat for ANY plant records in a
+       user-drawn polygon, regardless of taxon. -->
+  <div class="panel-section">
+    <h2>Area Herbarium/iNat Search</h2>
+    <p class="panel-note">Draw a polygon on the map (click to add vertices, double-click to close) to search for <em>any</em> plant records there — not just endemics. Requires internet. Large areas will prompt a warning.</p>
+    <div style="display:flex;gap:5px;margin-bottom:6px;">
+      <button class="area-src-btn on" data-src="herbarium">Herbarium</button>
+      <button class="area-src-btn on" data-src="inat">iNaturalist</button>
+    </div>
+    <button id="area-search-draw-btn">⬡ Draw Polygon</button>
+    <div id="area-search-status"></div>
+    <button id="area-search-clear-btn" style="display:none;margin-top:6px;">✕ Clear Search Results</button>
+  </div>
+
   <!-- Export -->
   <div class="panel-section">
     <h2>Export</h2>
@@ -631,7 +692,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-06-22-v7-gpx-export";
+const SCRIPT_VERSION = "2026-07-10-v13-text-dim-contrast";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -808,15 +869,12 @@ const state = {
   maxAccuracyM: 0,         // 0 = no filter; otherwise max allowed positional_accuracy_m
   excludeObscured: false,
   themes: new Set(),  // populated from data
-  areaBounds: null,   // L.LatLngBounds | null — set by the draw-a-box area filter
+  areaPolygon: null,  // array of [lat,lon] pairs | null — set by the draw-polygon area filter
 };
 
 // Leaflet objects
 let map, clusterGroup;
 let markersByFeature = new Map();
-let areaRectLayer = null;     // the drawn rectangle, once one exists
-let drawingArea = false;      // true while the user is actively dragging out a box
-let drawStartLatLng = null;
 
 // ============================================================
 // DEMO DATA — synthetic points when real GeoJSON not available
@@ -1099,11 +1157,11 @@ function featureVisible(f) {
   if (state.region && !(p.physiographic_region || "").includes(state.region)) return false;
   if (state.section && !(p.physiographic_section || "").includes(state.section)) return false;
 
-  // Point-level area filter (the draw-a-box tool) — unlike region/section
-  // above, this checks the ACTUAL coordinates of this specific occurrence,
-  // not a taxon-level range description. This is the point-level spatial
-  // filter referenced in the comment above.
-  if (state.areaBounds && !state.areaBounds.contains(f.geometry.coordinates.slice().reverse())) {
+  // Point-level area filter (the draw-polygon tool) — checks whether this
+  // specific occurrence falls inside the user-drawn polygon.
+  if (state.areaPolygon && !pointInPolygon(
+    f.geometry.coordinates[1], f.geometry.coordinates[0], state.areaPolygon
+  )) {
     return false;
   }
 
@@ -1142,15 +1200,35 @@ function featureVisible(f) {
 // ============================================================
 
 // ============================================================
-// AREA FILTER (draw-a-box)
+// POINT-IN-POLYGON UTILITY
 // ============================================================
-// One drag on the map defines a rectangle; only points inside it pass
-// featureVisible() (see the check there). Supports mouse AND touch —
-// touch drags don't generate live native 'mousemove' events on most
-// mobile browsers, so touch is handled with its own listeners rather
-// than relying on Leaflet's synthetic mouse events.
+// Ray-casting algorithm. polygon is array of [lat, lon] pairs.
+function pointInPolygon(lat, lon, polygon) {
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [yi, xi] = polygon[i];
+    const [yj, xj] = polygon[j];
+    if ((yi > lat) !== (yj > lat) &&
+        lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
 
-let drawPreviewLayer = null; // live rectangle while actively dragging
+// ============================================================
+// AREA FILTER (draw-polygon)
+// ============================================================
+// Click-to-add-vertex polygon drawing (same pattern as CalFlora, CalTopo).
+// Double-click closes the polygon and filters the main dataset to only
+// points inside it. Supports mouse and touch.
+
+let drawPolyVertices = [];
+let drawPolyLine = null;
+let drawPolyMarkers = [];
+let drawPolyFill = null;
+let drawingPoly = false;
 
 function getLatLngFromEvent(e) {
   if (e.touches && e.touches.length) return map.mouseEventToLatLng(e.touches[0]);
@@ -1160,110 +1238,411 @@ function getLatLngFromEvent(e) {
 
 function setAreaStatus(text) {
   const el = document.getElementById("area-status");
-  document.getElementById("area-status-text").textContent = text || "";
-  el.classList.toggle("visible", !!text);
+  if (!el) return;
+  if (!text) { el.classList.remove("visible"); el.textContent = ""; }
+  else { el.classList.add("visible"); el.textContent = text; }
 }
 
 function setDrawButtonActive(active) {
   const btn = document.getElementById("draw-area-btn");
+  if (!btn) return;
   btn.classList.toggle("active", active);
-  btn.textContent = active ? "Drag on map… (tap to cancel)" : "▭ Draw Box on Map";
+  btn.textContent = active ? "Click to add vertices, dbl-click to close (click here to cancel)" : "⬡ Draw Polygon on Map";
 }
 
 function startAreaDraw() {
-  drawingArea = true;
+  drawingPoly = true;
+  drawPolyVertices = [];
   setDrawButtonActive(true);
-  map.dragging.disable();
-  // On mobile, the panel overlays the map (see the responsive breakpoint
-  // above) — close it so there's actually a map visible to draw on.
-  if (window.innerWidth <= 768) {
-    document.getElementById("panel").classList.add("hidden");
-  }
-  const c = map.getContainer();
-  c.style.cursor = "crosshair";
-  c.addEventListener("mousedown", onAreaDrawStart);
-  c.addEventListener("touchstart", onAreaDrawStart, { passive: false });
+  if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
+  map.getContainer().style.cursor = "crosshair";
+  map.on("click", onPolyClick);
+  map.on("dblclick", onPolyDblClick);
 }
 
 function cancelAreaDraw() {
-  drawingArea = false;
+  drawingPoly = false;
   setDrawButtonActive(false);
-  map.dragging.enable();
-  const c = map.getContainer();
-  c.style.cursor = "";
-  c.removeEventListener("mousedown", onAreaDrawStart);
-  c.removeEventListener("touchstart", onAreaDrawStart);
-  c.removeEventListener("mousemove", onAreaDrawMove);
-  c.removeEventListener("touchmove", onAreaDrawMove);
-  c.removeEventListener("mouseup", onAreaDrawEnd);
-  c.removeEventListener("touchend", onAreaDrawEnd);
-  if (drawPreviewLayer) { map.removeLayer(drawPreviewLayer); drawPreviewLayer = null; }
-  drawStartLatLng = null;
+  map.getContainer().style.cursor = "";
+  map.off("click", onPolyClick);
+  map.off("dblclick", onPolyDblClick);
+  clearPolyPreview();
+  drawPolyVertices = [];
 }
 
-function onAreaDrawStart(e) {
-  if (e.touches && e.touches.length > 1) return; // let pinch-zoom through
-  e.preventDefault();
-  drawStartLatLng = getLatLngFromEvent(e);
-  drawPreviewLayer = L.rectangle([drawStartLatLng, drawStartLatLng], {
-    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.12, dashArray: "4,3",
+function clearPolyPreview() {
+  if (drawPolyLine) { map.removeLayer(drawPolyLine); drawPolyLine = null; }
+  drawPolyMarkers.forEach(m => map.removeLayer(m));
+  drawPolyMarkers = [];
+}
+
+function onPolyClick(e) {
+  const ll = e.latlng;
+  drawPolyVertices.push([ll.lat, ll.lng]);
+  const dot = L.circleMarker(ll, {
+    radius: 4, color: "#c8a85a", weight: 1.5, fillColor: "#c8a85a", fillOpacity: 1
   }).addTo(map);
-
-  const c = map.getContainer();
-  c.addEventListener("mousemove", onAreaDrawMove);
-  c.addEventListener("touchmove", onAreaDrawMove, { passive: false });
-  c.addEventListener("mouseup", onAreaDrawEnd);
-  c.addEventListener("touchend", onAreaDrawEnd);
+  drawPolyMarkers.push(dot);
+  if (drawPolyLine) map.removeLayer(drawPolyLine);
+  drawPolyLine = L.polyline(drawPolyVertices, {
+    color: "#c8a85a", weight: 2, dashArray: "5,4"
+  }).addTo(map);
 }
 
-function onAreaDrawMove(e) {
-  if (e.touches && e.touches.length > 1) return;
-  if (!drawPreviewLayer || !drawStartLatLng) return;
-  e.preventDefault();
-  drawPreviewLayer.setBounds(L.latLngBounds(drawStartLatLng, getLatLngFromEvent(e)));
+function onPolyDblClick(e) {
+  // Leaflet fires click then dblclick — the last vertex was already added
+  // by onPolyClick; remove the duplicate from the dblclick's preceding click
+  if (drawPolyVertices.length > 3) drawPolyVertices.pop();
+  if (drawPolyVertices.length < 3) {
+    alert("Need at least 3 points to close a polygon. Keep clicking.");
+    return;
+  }
+  closePolygon();
 }
 
-function onAreaDrawEnd(e) {
-  if (!drawStartLatLng) return;
-  const bounds = L.latLngBounds(drawStartLatLng, getLatLngFromEvent(e));
-
-  const c = map.getContainer();
-  c.removeEventListener("mousedown", onAreaDrawStart);
-  c.removeEventListener("touchstart", onAreaDrawStart);
-  c.removeEventListener("mousemove", onAreaDrawMove);
-  c.removeEventListener("touchmove", onAreaDrawMove);
-  c.removeEventListener("mouseup", onAreaDrawEnd);
-  c.removeEventListener("touchend", onAreaDrawEnd);
-  map.dragging.enable();
-  c.style.cursor = "";
-  drawingArea = false;
+function closePolygon() {
+  map.off("click", onPolyClick);
+  map.off("dblclick", onPolyDblClick);
+  map.getContainer().style.cursor = "";
+  drawingPoly = false;
   setDrawButtonActive(false);
-  if (drawPreviewLayer) { map.removeLayer(drawPreviewLayer); drawPreviewLayer = null; }
-
-  // Ignore accidental taps/clicks with no real drag distance — leave any
-  // pre-existing area filter untouched in that case.
-  const trivial = bounds.getNorth() === bounds.getSouth() || bounds.getEast() === bounds.getWest();
-  drawStartLatLng = null;
-  if (trivial) return;
-
-  if (areaRectLayer) map.removeLayer(areaRectLayer);
-  areaRectLayer = L.rectangle(bounds, {
-    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.08,
+  clearPolyPreview();
+  if (drawPolyFill) map.removeLayer(drawPolyFill);
+  drawPolyFill = L.polygon(drawPolyVertices, {
+    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.08
   }).addTo(map);
-
-  state.areaBounds = bounds;
-  setAreaStatus(
-    `Area active: ${bounds.getSouth().toFixed(2)}, ${bounds.getWest().toFixed(2)} → ` +
-    `${bounds.getNorth().toFixed(2)}, ${bounds.getEast().toFixed(2)}`
-  );
+  state.areaPolygon = [...drawPolyVertices];
+  setAreaStatus(`Polygon filter active (${drawPolyVertices.length} vertices)`);
   renderMarkers();
 }
 
 function clearAreaFilter() {
-  state.areaBounds = null;
-  if (areaRectLayer) { map.removeLayer(areaRectLayer); areaRectLayer = null; }
+  state.areaPolygon = null;
+  if (drawPolyFill) { map.removeLayer(drawPolyFill); drawPolyFill = null; }
+  clearPolyPreview();
+  drawPolyVertices = [];
   setAreaStatus(null);
   renderMarkers();
+}
+
+// ============================================================
+// AREA HERBARIUM SEARCH
+// ============================================================
+// Queries GBIF for ANY plant herbarium specimens within a user-drawn
+// bounding box — separate from the main occurrence dataset (taxa.csv /
+// occurrences.geojson). Results shown on a temporary overlay layer;
+// cleared when the user clicks "Clear Search Results".
+//
+// Guardrail: box must be ≤50km in both lat and lon span. Larger areas
+// would involve tens of thousands of GBIF API calls, put load on their
+// servers, and take too long to be useful. The user is warned and asked
+// to confirm if they try to exceed this.
+//
+// GBIF aggregates SEINet/Symbiota herbarium records among many other
+// sources — this reaches the same underlying data SEINet holds.
+
+let areaSearchDrawing = false;
+let areaSearchPolyVertices = [];
+let areaSearchPolyLine = null;
+let areaSearchPolyMarkers = [];
+let areaSearchResultLayer = null;
+let areaSearchDrawLayer = null;
+const areaSearchSources = new Set(["herbarium", "inat"]);
+
+const AREA_SEARCH_MAX_KM = 50;
+
+// Polygon-based GBIF bounding box is the enclosing bbox of the polygon.
+// Point-in-polygon filtering happens after results are returned.
+function polyBbox(verts) {
+  const lats = verts.map(v => v[0]), lons = verts.map(v => v[1]);
+  return {
+    latMin: Math.min(...lats), latMax: Math.max(...lats),
+    lonMin: Math.min(...lons), lonMax: Math.max(...lons)
+  };
+}
+
+function polyAreaKm(verts) {
+  const bbox = polyBbox(verts);
+  return {
+    nsKm: kmBetween(bbox.latMin, bbox.lonMin, bbox.latMax, bbox.lonMin),
+    ewKm: kmBetween(bbox.latMin, bbox.lonMin, bbox.latMin, bbox.lonMax)
+  };
+}
+
+function kmBetween(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+    Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function setAreaSearchStatus(text, color) {
+  const el = document.getElementById("area-search-status");
+  el.textContent = text || "";
+  el.style.color = color || "var(--text-dim)";
+}
+
+function setAreaSearchDrawActive(active) {
+  const btn = document.getElementById("area-search-draw-btn");
+  btn.classList.toggle("active", active);
+  btn.textContent = active ? "Click to add vertices, dbl-click to close (click here to cancel)" : "⬡ Draw Polygon";
+}
+
+function clearAreaSearchPolyPreview() {
+  if (areaSearchPolyLine) { map.removeLayer(areaSearchPolyLine); areaSearchPolyLine = null; }
+  areaSearchPolyMarkers.forEach(m => map.removeLayer(m));
+  areaSearchPolyMarkers = [];
+}
+
+function startAreaSearch() {
+  areaSearchDrawing = true;
+  areaSearchPolyVertices = [];
+  setAreaSearchDrawActive(true);
+  if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
+  map.getContainer().style.cursor = "crosshair";
+  map.on("click", onAreaSearchPolyClick);
+  map.on("dblclick", onAreaSearchPolyDblClick);
+}
+
+function cancelAreaSearch() {
+  areaSearchDrawing = false;
+  areaSearchPolyVertices = [];
+  setAreaSearchDrawActive(false);
+  map.getContainer().style.cursor = "";
+  map.off("click", onAreaSearchPolyClick);
+  map.off("dblclick", onAreaSearchPolyDblClick);
+  clearAreaSearchPolyPreview();
+}
+
+function onAreaSearchPolyClick(e) {
+  const ll = e.latlng;
+  areaSearchPolyVertices.push([ll.lat, ll.lng]);
+  const dot = L.circleMarker(ll, {
+    radius: 4, color: "#a060c0", weight: 1.5, fillColor: "#a060c0", fillOpacity: 1
+  }).addTo(map);
+  areaSearchPolyMarkers.push(dot);
+  if (areaSearchPolyLine) map.removeLayer(areaSearchPolyLine);
+  areaSearchPolyLine = L.polyline(areaSearchPolyVertices, {
+    color: "#a060c0", weight: 2, dashArray: "5,4"
+  }).addTo(map);
+}
+
+async function onAreaSearchPolyDblClick(e) {
+  if (areaSearchPolyVertices.length > 3) areaSearchPolyVertices.pop();
+  if (areaSearchPolyVertices.length < 3) {
+    alert("Need at least 3 points to close a search polygon.");
+    return;
+  }
+
+  map.off("click", onAreaSearchPolyClick);
+  map.off("dblclick", onAreaSearchPolyDblClick);
+  map.getContainer().style.cursor = "";
+  areaSearchDrawing = false;
+  setAreaSearchDrawActive(false);
+  clearAreaSearchPolyPreview();
+
+  const verts = [...areaSearchPolyVertices];
+  areaSearchPolyVertices = [];
+
+  const { nsKm, ewKm } = polyAreaKm(verts);
+  if (nsKm > AREA_SEARCH_MAX_KM || ewKm > AREA_SEARCH_MAX_KM) {
+    const proceed = confirm(
+      `This polygon's bounding box is ~${Math.round(ewKm)}km × ${Math.round(nsKm)}km — ` +
+      `larger than the recommended ${AREA_SEARCH_MAX_KM}km limit.\n\n` +
+      `A large area may take a long time and make many requests to GBIF's servers.\n\nProceed anyway?`
+    );
+    if (!proceed) return;
+  }
+
+  clearAreaSearchResults(false);
+
+  // Draw the search polygon on the map (purple, distinct from gold area filter)
+  areaSearchDrawLayer = L.polygon(verts, {
+    color: "#a060c0", weight: 1.5, fillColor: "#a060c0", fillOpacity: 0.05
+  }).addTo(map);
+
+  await runAreaHerbariumSearch(verts, nsKm, ewKm);
+}
+
+async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
+  if (!navigator.onLine) {
+    setAreaSearchStatus("No internet connection — area search requires GBIF/iNat access.", "var(--accent)");
+    return;
+  }
+
+  const doHerb = areaSearchSources.has("herbarium");
+  const doInat = areaSearchSources.has("inat");
+  if (!doHerb && !doInat) {
+    setAreaSearchStatus("Select at least one source (Herbarium or iNaturalist).", "var(--accent)");
+    return;
+  }
+
+  const srcLabel = doHerb && doInat ? "GBIF + iNat" : doHerb ? "GBIF" : "iNaturalist";
+  setAreaSearchStatus(`Searching ${srcLabel} (~${Math.round(ewKm)}km × ${Math.round(nsKm)}km)…`);
+  document.getElementById("area-search-clear-btn").style.display = "block";
+
+  // Use the polygon's bounding box for API queries (APIs don't accept
+  // arbitrary polygons), then clip to the exact polygon below.
+  const bbox = polyBbox(verts);
+  const latMin = bbox.latMin, latMax = bbox.latMax;
+  const lonMin = bbox.lonMin, lonMax = bbox.lonMax;
+  const features = [];
+
+  // --- GBIF (herbarium specimens) ---
+  if (doHerb) {
+    let offset = 0;
+    const limit = 300;
+    let totalExpected = null;
+    try {
+      while (true) {
+        const params = new URLSearchParams({
+          kingdom: "Plantae", basisOfRecord: "PRESERVED_SPECIMEN",
+          hasCoordinate: "true",
+          decimalLatitude: `${latMin},${latMax}`,
+          decimalLongitude: `${lonMin},${lonMax}`,
+          limit, offset
+        });
+        const resp = await fetch(`https://api.gbif.org/v1/occurrence/search?${params}`);
+        if (!resp.ok) throw new Error(`GBIF error ${resp.status}`);
+        const data = await resp.json();
+        if (totalExpected === null) totalExpected = data.count || 0;
+
+        for (const rec of data.results || []) {
+          const lat = parseFloat(rec.decimalLatitude);
+          const lon = parseFloat(rec.decimalLongitude);
+          if (isNaN(lat) || isNaN(lon)) continue;
+          features.push({
+            source: "herbarium", lat, lon,
+            taxon: rec.scientificName || rec.species || "Unknown",
+            family: rec.family || "",
+            date: rec.eventDate || String(rec.year || ""),
+            collector: rec.recordedBy || "",
+            institution: rec.institutionCode || "",
+            catalog: rec.catalogNumber || "",
+            locality: rec.locality || rec.verbatimLocality || "",
+            county: rec.county || "",
+            elevation: rec.elevation || "",
+            url: rec.key ? `https://www.gbif.org/occurrence/${rec.key}` : ""
+          });
+        }
+        setAreaSearchStatus(`Herbarium: ${features.filter(f=>f.source==="herbarium").length} of ~${totalExpected}…`);
+        if (!data.results?.length || offset + limit >= (totalExpected || 0)) break;
+        offset += limit;
+        await new Promise(r => setTimeout(r, 500));
+      }
+    } catch (err) {
+      setAreaSearchStatus(`GBIF error: ${err.message}`, "var(--accent)");
+      return;
+    }
+  }
+
+  // --- iNaturalist observations ---
+  if (doInat) {
+    let page = 1;
+    const perPage = 200;
+    let totalInat = null;
+    const inatBase = "https://api.inaturalist.org/v1/observations";
+    try {
+      while (true) {
+        const params = new URLSearchParams({
+          taxon_name: "Plantae", iconic_taxa: "Plantae",
+          nelat: latMax, nelng: lonMax, swlat: latMin, swlng: lonMin,
+          per_page: perPage, page,
+          order: "desc", order_by: "created_at"
+        });
+        const resp = await fetch(`${inatBase}?${params}`);
+        if (!resp.ok) throw new Error(`iNat error ${resp.status}`);
+        const data = await resp.json();
+        if (totalInat === null) totalInat = data.total_results || 0;
+
+        for (const obs of data.results || []) {
+          if (!obs.location) continue;
+          const [lat, lon] = obs.location.split(",").map(Number);
+          if (isNaN(lat) || isNaN(lon)) continue;
+          features.push({
+            source: "inat", lat, lon,
+            taxon: obs.taxon?.name || obs.species_guess || "Unknown",
+            family: obs.taxon?.iconic_taxon_name || "",
+            date: obs.observed_on || "",
+            collector: obs.user?.login || "",
+            institution: "",
+            catalog: String(obs.id || ""),
+            locality: obs.place_guess || "",
+            county: "", elevation: "",
+            url: obs.id ? `https://www.inaturalist.org/observations/${obs.id}` : "",
+            quality_grade: obs.quality_grade || "",
+            obscured: obs.obscured || false
+          });
+        }
+        setAreaSearchStatus(
+          `${doHerb ? `Herb: ${features.filter(f=>f.source==="herbarium").length} | ` : ""}` +
+          `iNat: ${features.filter(f=>f.source==="inat").length} of ~${totalInat}…`
+        );
+        if (!data.results?.length || page * perPage >= (totalInat || 0)) break;
+        page++;
+        await new Promise(r => setTimeout(r, 500));
+      }
+    } catch (err) {
+      setAreaSearchStatus(`iNat error: ${err.message}`, "var(--accent)");
+      return;
+    }
+  }
+
+  if (features.length === 0) {
+    setAreaSearchStatus("No records found in this area.");
+    return;
+  }
+
+  // Clip to the actual polygon — API queries used the bbox, which may
+  // include corners outside the polygon's edges.
+  const clipped = features.filter(f => pointInPolygon(f.lat, f.lon, verts));
+  if (clipped.length === 0) {
+    setAreaSearchStatus("No records found inside the drawn polygon.");
+    return;
+  }
+
+  const taxa = {};
+  clipped.forEach(f => { taxa[f.taxon] = (taxa[f.taxon] || 0) + 1; });
+  const herbCount = clipped.filter(f => f.source === "herbarium").length;
+  const inatCount = clipped.filter(f => f.source === "inat").length;
+  const parts = [];
+  if (doHerb) parts.push(`${herbCount} herbarium`);
+  if (doInat) parts.push(`${inatCount} iNat`);
+  setAreaSearchStatus(`${parts.join(" + ")} records, ${Object.keys(taxa).length} taxa.`, "var(--accent)");
+
+  // Plot results — herbarium = purple, iNat = teal, both distinct from main dataset gold
+  areaSearchResultLayer = L.layerGroup();
+  clipped.forEach(f => {
+    const color = f.source === "herbarium" ? "#a060c0" : "#40b0a0";
+    const marker = L.circleMarker([f.lat, f.lon], {
+      radius: 5, color, weight: 1.5, fillColor: color, fillOpacity: 0.6
+    });
+    const srcLabel = f.source === "herbarium" ? "Herbarium" : `iNaturalist${f.quality_grade ? " (" + f.quality_grade + ")" : ""}`;
+    marker.bindPopup(`
+      <b style="color:#c8a85a">${f.taxon}</b>${f.family ? ` <span style="color:#9a9da2">(${f.family})</span>` : ""}<br>
+      <span style="color:#9a9da2">${srcLabel}</span><br>
+      ${f.date || "Date unknown"}<br>
+      ${f.institution ? f.institution + (f.catalog ? " — " + f.catalog : "") + "<br>" : ""}
+      ${f.county ? f.county + ". " : ""}${f.locality || ""}<br>
+      ${f.elevation ? "Elev: " + f.elevation + "m<br>" : ""}
+      ${f.collector ? (f.source === "herbarium" ? "Coll: " : "Observer: ") + f.collector + "<br>" : ""}
+      ${f.obscured ? '<span style="color:var(--accent)">⚠ Coordinates obscured</span><br>' : ""}
+      ${f.url ? `<a href="${f.url}" target="_blank" style="color:#c8a85a">View record</a>` : ""}
+    `);
+    areaSearchResultLayer.addLayer(marker);
+  });
+  areaSearchResultLayer.addTo(map);
+}
+
+function clearAreaSearchResults(resetButton = true) {
+  if (areaSearchResultLayer) { map.removeLayer(areaSearchResultLayer); areaSearchResultLayer = null; }
+  if (areaSearchDrawLayer) { map.removeLayer(areaSearchDrawLayer); areaSearchDrawLayer = null; }
+  if (resetButton) {
+    setAreaSearchStatus("");
+    document.getElementById("area-search-clear-btn").style.display = "none";
+  }
 }
 
 function renderMarkers() {
@@ -1857,8 +2236,7 @@ async function init() {
     center: [39.5, -116.5],
     zoom: 7,
     zoomControl: true,
-    maxZoom: 20,   // allow zooming past basemap tile resolution (tiles will upscale,
-                   // but this is essential for separating tightly-clustered points)
+    maxZoom: 20,
   });
 
   // Basemap — USGS Topo (good for field use)
@@ -1979,10 +2357,26 @@ async function init() {
   document.getElementById("export-btn").addEventListener("click", exportFiltered);
   document.getElementById("export-gpx-btn").addEventListener("click", exportFilteredGPX);
   document.getElementById("draw-area-btn").addEventListener("click", () => {
-    if (drawingArea) cancelAreaDraw(); else startAreaDraw();
+    if (drawingPoly) cancelAreaDraw(); else startAreaDraw();
   });
   document.getElementById("clear-area-btn").addEventListener("click", clearAreaFilter);
   document.getElementById("download-offline-map-btn").addEventListener("click", precacheTopoTiles);
+  document.getElementById("area-search-draw-btn").addEventListener("click", () => {
+    if (areaSearchDrawing) cancelAreaSearch(); else startAreaSearch();
+  });
+  document.getElementById("area-search-clear-btn").addEventListener("click", () => clearAreaSearchResults(true));
+  document.querySelectorAll(".area-src-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const src = btn.dataset.src;
+      if (areaSearchSources.has(src)) {
+        areaSearchSources.delete(src);
+        btn.classList.remove("on");
+      } else {
+        areaSearchSources.add(src);
+        btn.classList.add("on");
+      }
+    });
+  });
   document.getElementById("export-csv-btn").addEventListener("click", exportFilteredCSV);
 
   document.getElementById("clear-btn").addEventListener("click", () => {
