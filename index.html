@@ -723,7 +723,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-10-v20-clustering-plant-filter";
+const SCRIPT_VERSION = "2026-07-10-v21-gaia-emoji-colors";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -2420,11 +2420,27 @@ function buildRegionSelects() {
 // Builds a human-readable title + notes for one record, used when exporting
 // to GeoJSON so Gaia GPS waypoints aren't just "untitled" — mirrors the same
 // fields shown in the on-map popup (buildPopup above).
+// Colored circle emoji assigned per taxon for Gaia waypoint visual differentiation.
+// Gaia ignores color/icon data in GPX and GeoJSON, so emoji in the title is the
+// only reliable way to get species-level color coding in the waypoint list.
+const WAYPOINT_EMOJI = ["🔴","🟠","🟡","🟢","🔵","🟣","🟤","⚪","🩷","🩵","🟥","🟧","🟨","🟩","🟦","🟪"];
+const taxonEmojiMap = {};
+let taxonEmojiIndex = 0;
+
+function getWaypointEmoji(taxon) {
+  if (!taxonEmojiMap[taxon]) {
+    taxonEmojiMap[taxon] = WAYPOINT_EMOJI[taxonEmojiIndex % WAYPOINT_EMOJI.length];
+    taxonEmojiIndex++;
+  }
+  return taxonEmojiMap[taxon];
+}
+
 function buildWaypointLabel(props) {
   const isHerb = props.source === "herbarium";
   const date = isHerb ? (props.collection_date || "date unknown") : (props.observed_on || "date unknown");
   const sourceLabel = isHerb ? "Herbarium" : "iNat";
-  const title = `${props.taxon} — ${sourceLabel}, ${date}`;
+  const emoji = getWaypointEmoji(props.taxon || "Unknown");
+  const title = `${emoji} ${props.taxon} — ${sourceLabel}, ${date}`;
 
   const lines = [props.taxon, isHerb ? "Herbarium specimen" : "iNaturalist observation", `Date: ${date}`];
 
