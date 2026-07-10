@@ -263,15 +263,15 @@
     color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em;
   }
   .area-src-btn.on { background: rgba(200,168,90,0.2); border-color: var(--accent); color: var(--accent); }
-  #area-search-draw-btn {
-    width: 100%; padding: 8px;
+  #area-search-draw-btn, #area-search-box-btn {
+    flex: 1; padding: 8px 4px;
     background: rgba(200,168,90,0.15); border: 1px solid var(--accent);
     color: var(--accent); border-radius: 4px;
     cursor: pointer; font-size: 12px; font-weight: 600;
     letter-spacing: 0.04em; text-transform: uppercase; transition: all 0.15s;
   }
-  #area-search-draw-btn:hover { background: rgba(200,168,90,0.3); }
-  #area-search-draw-btn.active { background: var(--accent); color: var(--bg); }
+  #area-search-draw-btn:hover, #area-search-box-btn:hover { background: rgba(200,168,90,0.3); }
+  #area-search-draw-btn.active, #area-search-box-btn.active { background: var(--accent); color: var(--bg); }
   #area-search-status {
     margin-top: 8px; font-size: 11px; color: var(--text-dim);
     line-height: 1.4; min-height: 0;
@@ -304,16 +304,24 @@
   }
 
   /* Area filter */
-  #draw-area-btn {
-    width: 100%; padding: 8px;
+  #draw-area-btn, #draw-box-btn {
+    flex: 1; padding: 8px 4px;
     background: rgba(200,168,90,0.15); border: 1px solid var(--accent);
     color: var(--accent); border-radius: 4px;
     cursor: pointer; font-size: 12px; font-weight: 600;
     letter-spacing: 0.04em; text-transform: uppercase;
     transition: all 0.15s;
   }
-  #draw-area-btn:hover { background: rgba(200,168,90,0.3); }
-  #draw-area-btn.active { background: var(--accent); color: var(--bg); }
+  #draw-area-btn:hover, #draw-box-btn:hover { background: rgba(200,168,90,0.3); }
+  #draw-area-btn.active, #draw-box-btn.active { background: var(--accent); color: var(--bg); }
+  #close-poly-btn, #close-search-poly-btn {
+    width: 100%; padding: 8px;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; transition: all 0.15s;
+  }
+  #close-poly-btn:hover, #close-search-poly-btn:hover { background: rgba(106,158,127,0.3); }
   #area-status {
     display: none; align-items: center; justify-content: space-between;
     margin-top: 8px; padding: 6px 10px;
@@ -511,11 +519,15 @@
     <ul id="place-list"></ul>
   </div>
 
-  <!-- Area filter — draw a box on the map; only points inside it pass
-       every other filter too. Complements taxon-level region/section. -->
+  <!-- Area filter — draw a polygon or box on the map; only points inside
+       it pass every other filter too. Complements taxon-level region/section. -->
   <div class="panel-section">
     <h2>Area Filter</h2>
-    <button id="draw-area-btn">⬡ Draw Polygon on Map</button>
+    <div style="display:flex;gap:5px;margin-bottom:6px;">
+      <button id="draw-area-btn">⬡ Polygon</button>
+      <button id="draw-box-btn">▭ Box</button>
+    </div>
+    <button id="close-poly-btn" style="display:none;margin-top:0;">✓ Close Polygon (or Enter)</button>
     <div id="area-status">
       <span id="area-status-text"></span>
       <button id="clear-area-btn" title="Clear area filter">✕</button>
@@ -659,15 +671,19 @@
   </div>
 
   <!-- Area search — queries GBIF/iNat for ANY plant records in a
-       user-drawn polygon, regardless of taxon. -->
+       user-drawn area, regardless of taxon. -->
   <div class="panel-section">
     <h2>Area Herbarium/iNat Search</h2>
-    <p class="panel-note">Draw a polygon on the map (click to add vertices, double-click to close) to search for <em>any</em> plant records there — not just endemics. Requires internet. Large areas will prompt a warning.</p>
+    <p class="panel-note">Draw a polygon or box to search for <em>any</em> plant records there — not just endemics. Requires internet. Large areas will prompt a warning.</p>
     <div style="display:flex;gap:5px;margin-bottom:6px;">
       <button class="area-src-btn on" data-src="herbarium">Herbarium</button>
       <button class="area-src-btn on" data-src="inat">iNaturalist</button>
     </div>
-    <button id="area-search-draw-btn">⬡ Draw Polygon</button>
+    <div style="display:flex;gap:5px;margin-bottom:6px;">
+      <button id="area-search-draw-btn">⬡ Polygon</button>
+      <button id="area-search-box-btn">▭ Box</button>
+    </div>
+    <button id="close-search-poly-btn" style="display:none;margin-top:0;">✓ Close Polygon (or Enter)</button>
     <div id="area-search-status"></div>
     <button id="area-search-clear-btn" style="display:none;margin-top:6px;">✕ Clear Search Results</button>
   </div>
@@ -692,7 +708,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-10-v13-text-dim-contrast";
+const SCRIPT_VERSION = "2026-07-10-v18-clear-all-search-results";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -1238,34 +1254,136 @@ function getLatLngFromEvent(e) {
 
 function setAreaStatus(text) {
   const el = document.getElementById("area-status");
-  if (!el) return;
-  if (!text) { el.classList.remove("visible"); el.textContent = ""; }
-  else { el.classList.add("visible"); el.textContent = text; }
+  const textEl = document.getElementById("area-status-text");
+  if (!el || !textEl) return;
+  textEl.textContent = text || "";
+  el.classList.toggle("visible", !!text);
 }
 
 function setDrawButtonActive(active) {
   const btn = document.getElementById("draw-area-btn");
   if (!btn) return;
   btn.classList.toggle("active", active);
-  btn.textContent = active ? "Click to add vertices, dbl-click to close (click here to cancel)" : "⬡ Draw Polygon on Map";
+  btn.textContent = active ? "⬡ Drawing… (click to cancel)" : "⬡ Polygon";
+}
+
+// Box drawing (drag to create rectangle — simpler alternative to polygon)
+let drawingBox = false;
+let drawBoxStart = null;
+let drawBoxPreview = null;
+let drawBoxFill = null;
+
+function startBoxDraw() {
+  if (drawingPoly) cancelAreaDraw();
+  if (areaSearchDrawing) cancelAreaSearch();
+  if (areaSearchBoxDrawing) cancelAreaSearchBox();
+  drawingBox = true;
+  const btn = document.getElementById("draw-box-btn");
+  btn.classList.add("active");
+  btn.textContent = "▭ Drag on map… (click to cancel)";
+  if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
+  map.dragging.disable();
+  map.getContainer().style.cursor = "crosshair";
+  map.getContainer().addEventListener("mousedown", onBoxStart);
+  map.getContainer().addEventListener("touchstart", onBoxStart, { passive: false });
+}
+
+function cancelBoxDraw() {
+  drawingBox = false;
+  const btn = document.getElementById("draw-box-btn");
+  btn.classList.remove("active");
+  btn.textContent = "▭ Box";
+  map.dragging.enable();
+  map.getContainer().style.cursor = "";
+  map.getContainer().removeEventListener("mousedown", onBoxStart);
+  map.getContainer().removeEventListener("touchstart", onBoxStart);
+  map.getContainer().removeEventListener("mousemove", onBoxMove);
+  map.getContainer().removeEventListener("touchmove", onBoxMove);
+  map.getContainer().removeEventListener("mouseup", onBoxEnd);
+  map.getContainer().removeEventListener("touchend", onBoxEnd);
+  if (drawBoxPreview) { map.removeLayer(drawBoxPreview); drawBoxPreview = null; }
+  drawBoxStart = null;
+}
+
+function onBoxStart(e) {
+  if (e.touches && e.touches.length > 1) return;
+  e.preventDefault();
+  drawBoxStart = getLatLngFromEvent(e);
+  drawBoxPreview = L.rectangle([drawBoxStart, drawBoxStart], {
+    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.12, dashArray: "4,3"
+  }).addTo(map);
+  map.getContainer().addEventListener("mousemove", onBoxMove);
+  map.getContainer().addEventListener("touchmove", onBoxMove, { passive: false });
+  map.getContainer().addEventListener("mouseup", onBoxEnd);
+  map.getContainer().addEventListener("touchend", onBoxEnd);
+}
+
+function onBoxMove(e) {
+  if (!drawBoxPreview || !drawBoxStart) return;
+  e.preventDefault();
+  drawBoxPreview.setBounds(L.latLngBounds(drawBoxStart, getLatLngFromEvent(e)));
+}
+
+function onBoxEnd(e) {
+  if (!drawBoxStart) return;
+  const bounds = L.latLngBounds(drawBoxStart, getLatLngFromEvent(e));
+
+  map.getContainer().removeEventListener("mousedown", onBoxStart);
+  map.getContainer().removeEventListener("touchstart", onBoxStart);
+  map.getContainer().removeEventListener("mousemove", onBoxMove);
+  map.getContainer().removeEventListener("touchmove", onBoxMove);
+  map.getContainer().removeEventListener("mouseup", onBoxEnd);
+  map.getContainer().removeEventListener("touchend", onBoxEnd);
+  map.dragging.enable();
+  map.getContainer().style.cursor = "";
+  drawingBox = false;
+  const btn = document.getElementById("draw-box-btn");
+  btn.classList.remove("active");
+  btn.textContent = "▭ Box";
+  if (drawBoxPreview) { map.removeLayer(drawBoxPreview); drawBoxPreview = null; }
+  drawBoxStart = null;
+
+  const trivial = bounds.getNorth() === bounds.getSouth() || bounds.getEast() === bounds.getWest();
+  if (trivial) return;
+
+  // Convert bounds to polygon vertices for the shared areaPolygon state
+  const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+  const verts = [
+    [sw.lat, sw.lng], [ne.lat, sw.lng], [ne.lat, ne.lng], [sw.lat, ne.lng]
+  ];
+
+  if (drawBoxFill) map.removeLayer(drawBoxFill);
+  // Reuse drawPolyFill slot so clearAreaFilter removes it
+  if (drawPolyFill) map.removeLayer(drawPolyFill);
+  drawPolyFill = L.rectangle(bounds, {
+    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.08
+  }).addTo(map);
+  state.areaPolygon = verts;
+  setAreaStatus(`Box filter active`);
+  renderMarkers();
 }
 
 function startAreaDraw() {
+  if (areaSearchDrawing) cancelAreaSearch();
+  if (drawingBox) cancelBoxDraw();
+  if (areaSearchBoxDrawing) cancelAreaSearchBox();
   drawingPoly = true;
   drawPolyVertices = [];
   setDrawButtonActive(true);
+  document.getElementById("close-poly-btn").style.display = "block";
   if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
   map.getContainer().style.cursor = "crosshair";
   map.on("click", onPolyClick);
-  map.on("dblclick", onPolyDblClick);
+  document.addEventListener("keydown", onPolyKeyDown);
 }
 
 function cancelAreaDraw() {
   drawingPoly = false;
   setDrawButtonActive(false);
+  document.getElementById("close-poly-btn").style.display = "none";
   map.getContainer().style.cursor = "";
   map.off("click", onPolyClick);
-  map.off("dblclick", onPolyDblClick);
+  document.removeEventListener("keydown", onPolyKeyDown);
   clearPolyPreview();
   drawPolyVertices = [];
 }
@@ -1274,6 +1392,11 @@ function clearPolyPreview() {
   if (drawPolyLine) { map.removeLayer(drawPolyLine); drawPolyLine = null; }
   drawPolyMarkers.forEach(m => map.removeLayer(m));
   drawPolyMarkers = [];
+}
+
+function onPolyKeyDown(e) {
+  if (e.key === "Enter") { e.preventDefault(); tryClosePolygon(); }
+  if (e.key === "Escape") { cancelAreaDraw(); }
 }
 
 function onPolyClick(e) {
@@ -1289,12 +1412,9 @@ function onPolyClick(e) {
   }).addTo(map);
 }
 
-function onPolyDblClick(e) {
-  // Leaflet fires click then dblclick — the last vertex was already added
-  // by onPolyClick; remove the duplicate from the dblclick's preceding click
-  if (drawPolyVertices.length > 3) drawPolyVertices.pop();
+function tryClosePolygon() {
   if (drawPolyVertices.length < 3) {
-    alert("Need at least 3 points to close a polygon. Keep clicking.");
+    alert("Need at least 3 points to close a polygon.");
     return;
   }
   closePolygon();
@@ -1302,10 +1422,11 @@ function onPolyDblClick(e) {
 
 function closePolygon() {
   map.off("click", onPolyClick);
-  map.off("dblclick", onPolyDblClick);
+  document.removeEventListener("keydown", onPolyKeyDown);
   map.getContainer().style.cursor = "";
   drawingPoly = false;
   setDrawButtonActive(false);
+  document.getElementById("close-poly-btn").style.display = "none";
   clearPolyPreview();
   if (drawPolyFill) map.removeLayer(drawPolyFill);
   drawPolyFill = L.polygon(drawPolyVertices, {
@@ -1317,6 +1438,8 @@ function closePolygon() {
 }
 
 function clearAreaFilter() {
+  if (drawingPoly) cancelAreaDraw();
+  if (drawingBox) cancelBoxDraw();
   state.areaPolygon = null;
   if (drawPolyFill) { map.removeLayer(drawPolyFill); drawPolyFill = null; }
   clearPolyPreview();
@@ -1396,24 +1519,131 @@ function clearAreaSearchPolyPreview() {
   areaSearchPolyMarkers = [];
 }
 
+// Area search box drawing state
+let areaSearchBoxDrawing = false;
+let areaSearchBoxStart = null;
+let areaSearchBoxPreview = null;
+
+function setAreaSearchBoxActive(active) {
+  const btn = document.getElementById("area-search-box-btn");
+  if (!btn) return;
+  btn.classList.toggle("active", active);
+  btn.textContent = active ? "▭ Drag to draw… (click to cancel)" : "▭ Box";
+}
+
+function startAreaSearchBox() {
+  if (drawingPoly) cancelAreaDraw();
+  if (drawingBox) cancelBoxDraw();
+  if (areaSearchDrawing) cancelAreaSearch();
+  areaSearchBoxDrawing = true;
+  setAreaSearchBoxActive(true);
+  if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
+  map.dragging.disable();
+  map.getContainer().style.cursor = "crosshair";
+  map.getContainer().addEventListener("mousedown", onAreaSearchBoxStart);
+  map.getContainer().addEventListener("touchstart", onAreaSearchBoxStart, { passive: false });
+}
+
+function cancelAreaSearchBox() {
+  areaSearchBoxDrawing = false;
+  setAreaSearchBoxActive(false);
+  map.dragging.enable();
+  map.getContainer().style.cursor = "";
+  map.getContainer().removeEventListener("mousedown", onAreaSearchBoxStart);
+  map.getContainer().removeEventListener("touchstart", onAreaSearchBoxStart);
+  map.getContainer().removeEventListener("mousemove", onAreaSearchBoxMove);
+  map.getContainer().removeEventListener("touchmove", onAreaSearchBoxMove);
+  map.getContainer().removeEventListener("mouseup", onAreaSearchBoxEnd);
+  map.getContainer().removeEventListener("touchend", onAreaSearchBoxEnd);
+  if (areaSearchBoxPreview) { map.removeLayer(areaSearchBoxPreview); areaSearchBoxPreview = null; }
+  areaSearchBoxStart = null;
+}
+
+function onAreaSearchBoxStart(e) {
+  if (e.touches && e.touches.length > 1) return;
+  e.preventDefault();
+  areaSearchBoxStart = getLatLngFromEvent(e);
+  areaSearchBoxPreview = L.rectangle([areaSearchBoxStart, areaSearchBoxStart], {
+    color: "#a060c0", weight: 2, fillColor: "#a060c0", fillOpacity: 0.10, dashArray: "4,3"
+  }).addTo(map);
+  map.getContainer().addEventListener("mousemove", onAreaSearchBoxMove);
+  map.getContainer().addEventListener("touchmove", onAreaSearchBoxMove, { passive: false });
+  map.getContainer().addEventListener("mouseup", onAreaSearchBoxEnd);
+  map.getContainer().addEventListener("touchend", onAreaSearchBoxEnd);
+}
+
+function onAreaSearchBoxMove(e) {
+  if (!areaSearchBoxPreview || !areaSearchBoxStart) return;
+  e.preventDefault();
+  areaSearchBoxPreview.setBounds(L.latLngBounds(areaSearchBoxStart, getLatLngFromEvent(e)));
+}
+
+async function onAreaSearchBoxEnd(e) {
+  if (!areaSearchBoxStart) return;
+  const bounds = L.latLngBounds(areaSearchBoxStart, getLatLngFromEvent(e));
+  map.getContainer().removeEventListener("mousedown", onAreaSearchBoxStart);
+  map.getContainer().removeEventListener("touchstart", onAreaSearchBoxStart);
+  map.getContainer().removeEventListener("mousemove", onAreaSearchBoxMove);
+  map.getContainer().removeEventListener("touchmove", onAreaSearchBoxMove);
+  map.getContainer().removeEventListener("mouseup", onAreaSearchBoxEnd);
+  map.getContainer().removeEventListener("touchend", onAreaSearchBoxEnd);
+  map.dragging.enable();
+  map.getContainer().style.cursor = "";
+  areaSearchBoxDrawing = false;
+  setAreaSearchBoxActive(false);
+  if (areaSearchBoxPreview) { map.removeLayer(areaSearchBoxPreview); areaSearchBoxPreview = null; }
+  areaSearchBoxStart = null;
+
+  const trivial = bounds.getNorth() === bounds.getSouth() || bounds.getEast() === bounds.getWest();
+  if (trivial) return;
+
+  const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+  const verts = [[sw.lat, sw.lng], [ne.lat, sw.lng], [ne.lat, ne.lng], [sw.lat, ne.lng]];
+  const { nsKm, ewKm } = polyAreaKm(verts);
+
+  if (nsKm > AREA_SEARCH_MAX_KM || ewKm > AREA_SEARCH_MAX_KM) {
+    const proceed = confirm(
+      `This box is ~${Math.round(ewKm)}km × ${Math.round(nsKm)}km — larger than the recommended ${AREA_SEARCH_MAX_KM}km limit.\n\nProceed anyway?`
+    );
+    if (!proceed) return;
+  }
+
+  clearAreaSearchResults(false);
+  areaSearchDrawLayer = L.rectangle(bounds, {
+    color: "#a060c0", weight: 1.5, fillColor: "#a060c0", fillOpacity: 0.05
+  }).addTo(map);
+
+  await runAreaHerbariumSearch(verts, nsKm, ewKm);
+}
+
 function startAreaSearch() {
+  if (drawingPoly) cancelAreaDraw();
+  if (drawingBox) cancelBoxDraw();
+  if (areaSearchBoxDrawing) cancelAreaSearchBox();
   areaSearchDrawing = true;
   areaSearchPolyVertices = [];
   setAreaSearchDrawActive(true);
+  document.getElementById("close-search-poly-btn").style.display = "block";
   if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
   map.getContainer().style.cursor = "crosshair";
   map.on("click", onAreaSearchPolyClick);
-  map.on("dblclick", onAreaSearchPolyDblClick);
+  document.addEventListener("keydown", onAreaSearchKeyDown);
 }
 
 function cancelAreaSearch() {
   areaSearchDrawing = false;
   areaSearchPolyVertices = [];
   setAreaSearchDrawActive(false);
+  document.getElementById("close-search-poly-btn").style.display = "none";
   map.getContainer().style.cursor = "";
   map.off("click", onAreaSearchPolyClick);
-  map.off("dblclick", onAreaSearchPolyDblClick);
+  document.removeEventListener("keydown", onAreaSearchKeyDown);
   clearAreaSearchPolyPreview();
+}
+
+function onAreaSearchKeyDown(e) {
+  if (e.key === "Enter") { e.preventDefault(); tryCloseAreaSearchPolygon(); }
+  if (e.key === "Escape") { cancelAreaSearch(); }
 }
 
 function onAreaSearchPolyClick(e) {
@@ -1429,18 +1659,21 @@ function onAreaSearchPolyClick(e) {
   }).addTo(map);
 }
 
-async function onAreaSearchPolyDblClick(e) {
-  if (areaSearchPolyVertices.length > 3) areaSearchPolyVertices.pop();
+function tryCloseAreaSearchPolygon() {
   if (areaSearchPolyVertices.length < 3) {
     alert("Need at least 3 points to close a search polygon.");
     return;
   }
+  closeAreaSearchPolygon();
+}
 
+async function closeAreaSearchPolygon() {
   map.off("click", onAreaSearchPolyClick);
-  map.off("dblclick", onAreaSearchPolyDblClick);
+  document.removeEventListener("keydown", onAreaSearchKeyDown);
   map.getContainer().style.cursor = "";
   areaSearchDrawing = false;
   setAreaSearchDrawActive(false);
+  document.getElementById("close-search-poly-btn").style.display = "none";
   clearAreaSearchPolyPreview();
 
   const verts = [...areaSearchPolyVertices];
@@ -1458,7 +1691,6 @@ async function onAreaSearchPolyDblClick(e) {
 
   clearAreaSearchResults(false);
 
-  // Draw the search polygon on the map (purple, distinct from gold area filter)
   areaSearchDrawLayer = L.polygon(verts, {
     color: "#a060c0", weight: 1.5, fillColor: "#a060c0", fillOpacity: 0.05
   }).addTo(map);
@@ -2359,11 +2591,19 @@ async function init() {
   document.getElementById("draw-area-btn").addEventListener("click", () => {
     if (drawingPoly) cancelAreaDraw(); else startAreaDraw();
   });
+  document.getElementById("draw-box-btn").addEventListener("click", () => {
+    if (drawingBox) cancelBoxDraw(); else startBoxDraw();
+  });
+  document.getElementById("close-poly-btn").addEventListener("click", tryClosePolygon);
   document.getElementById("clear-area-btn").addEventListener("click", clearAreaFilter);
   document.getElementById("download-offline-map-btn").addEventListener("click", precacheTopoTiles);
   document.getElementById("area-search-draw-btn").addEventListener("click", () => {
     if (areaSearchDrawing) cancelAreaSearch(); else startAreaSearch();
   });
+  document.getElementById("area-search-box-btn").addEventListener("click", () => {
+    if (areaSearchBoxDrawing) cancelAreaSearchBox(); else startAreaSearchBox();
+  });
+  document.getElementById("close-search-poly-btn").addEventListener("click", tryCloseAreaSearchPolygon);
   document.getElementById("area-search-clear-btn").addEventListener("click", () => clearAreaSearchResults(true));
   document.querySelectorAll(".area-src-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -2400,6 +2640,10 @@ async function init() {
     document.getElementById("taxon-search").value = "";
     buildTaxonList();
     updateTaxonCard();
+    // Also clear the polygon area filter and any in-progress drawing
+    if (drawingPoly) cancelAreaDraw();
+    clearAreaFilter();
+    clearAreaSearchResults(true);
     renderMarkers();
   });
 
