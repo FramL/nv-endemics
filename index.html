@@ -283,6 +283,13 @@
     cursor: pointer; font-size: 11px; transition: all 0.15s;
   }
   #area-search-clear-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .area-search-export-btn {
+    flex: 1; padding: 6px 4px; font-size: 11px; font-weight: 600;
+    border-radius: 4px; cursor: pointer; transition: all 0.15s;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .area-search-export-btn:hover { background: rgba(106,158,127,0.3); }
 
   /* Offline base map */
   .panel-note {
@@ -685,6 +692,14 @@
     </div>
     <button id="close-search-poly-btn" style="display:none;margin-top:0;">✓ Close Polygon (or Enter)</button>
     <div id="area-search-status"></div>
+    <div id="area-search-export-group" style="display:none;margin-top:6px;gap:4px;flex-direction:column;">
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:2px;">Export search results:</div>
+      <div style="display:flex;gap:4px;">
+        <button class="area-search-export-btn" id="area-search-export-geojson">GeoJSON</button>
+        <button class="area-search-export-btn" id="area-search-export-gpx">GPX</button>
+        <button class="area-search-export-btn" id="area-search-export-csv">CSV</button>
+      </div>
+    </div>
     <button id="area-search-clear-btn" style="display:none;margin-top:6px;">✕ Clear Search Results</button>
   </div>
 
@@ -708,7 +723,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-10-v18-clear-all-search-results";
+const SCRIPT_VERSION = "2026-07-10-v20-clustering-plant-filter";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -1469,6 +1484,8 @@ let areaSearchPolyVertices = [];
 let areaSearchPolyLine = null;
 let areaSearchPolyMarkers = [];
 let areaSearchResultLayer = null;
+let areaSearchClusterGroup = null; // separate cluster group for area search results
+let areaSearchResultFeatures = []; // kept for export after search completes
 let areaSearchDrawLayer = null;
 const areaSearchSources = new Set(["herbarium", "inat"]);
 
@@ -1730,7 +1747,9 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
     try {
       while (true) {
         const params = new URLSearchParams({
-          kingdom: "Plantae", basisOfRecord: "PRESERVED_SPECIMEN",
+          kingdom: "Plantae",
+          kingdomKey: "6",        // GBIF internal key for Plantae — more reliable than string match
+          basisOfRecord: "PRESERVED_SPECIMEN",
           hasCoordinate: "true",
           decimalLatitude: `${latMin},${latMax}`,
           decimalLongitude: `${lonMin},${lonMax}`,
@@ -1745,6 +1764,10 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
           const lat = parseFloat(rec.decimalLatitude);
           const lon = parseFloat(rec.decimalLongitude);
           if (isNaN(lat) || isNaN(lon)) continue;
+          // Post-filter: skip any record GBIF has assigned to a non-plant kingdom.
+          // kingdomKey should catch most, but data quality issues mean some slip through.
+          const kdom = (rec.kingdom || "").toLowerCase();
+          if (kdom && kdom !== "plantae") continue;
           features.push({
             source: "herbarium", lat, lon,
             taxon: rec.scientificName || rec.species || "Unknown",
@@ -1779,7 +1802,8 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
     try {
       while (true) {
         const params = new URLSearchParams({
-          taxon_name: "Plantae", iconic_taxa: "Plantae",
+          taxon_id: "47126",   // iNat's internal ID for kingdom Plantae — strict filter
+          iconic_taxa: "Plantae",
           nelat: latMax, nelng: lonMax, swlat: latMin, swlng: lonMin,
           per_page: perPage, page,
           order: "desc", order_by: "created_at"
@@ -1844,8 +1868,29 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
   if (doInat) parts.push(`${inatCount} iNat`);
   setAreaSearchStatus(`${parts.join(" + ")} records, ${Object.keys(taxa).length} taxa.`, "var(--accent)");
 
-  // Plot results — herbarium = purple, iNat = teal, both distinct from main dataset gold
-  areaSearchResultLayer = L.layerGroup();
+  // Store for export
+  areaSearchResultFeatures = clipped;
+  document.getElementById("area-search-export-group").style.display = "flex";
+
+  // Plot results using a cluster group so coincident points can be separated
+  // by zooming in or clicking to spiderfy — same behavior as the main dataset.
+  // Purple = herbarium, teal = iNat, both distinct from main dataset gold.
+  if (areaSearchClusterGroup) { map.removeLayer(areaSearchClusterGroup); }
+  areaSearchClusterGroup = L.markerClusterGroup({
+    maxClusterRadius: 35,
+    disableClusteringAtZoom: 19,
+    spiderfyOnMaxZoom: true,
+    spiderfyDistanceMultiplier: 1.5,
+    zoomToBoundsOnClick: true,
+    iconCreateFunction: cluster => {
+      const count = cluster.getChildCount();
+      return L.divIcon({
+        html: `<div style="background:#6040a0;color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${count}</div>`,
+        className: "", iconSize: [32, 32], iconAnchor: [16, 16]
+      });
+    }
+  });
+  areaSearchResultLayer = areaSearchClusterGroup;
   clipped.forEach(f => {
     const color = f.source === "herbarium" ? "#a060c0" : "#40b0a0";
     const marker = L.circleMarker([f.lat, f.lon], {
@@ -1863,14 +1908,95 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
       ${f.obscured ? '<span style="color:var(--accent)">⚠ Coordinates obscured</span><br>' : ""}
       ${f.url ? `<a href="${f.url}" target="_blank" style="color:#c8a85a">View record</a>` : ""}
     `);
-    areaSearchResultLayer.addLayer(marker);
+    areaSearchClusterGroup.addLayer(marker);
   });
-  areaSearchResultLayer.addTo(map);
+  areaSearchClusterGroup.addTo(map);
+}
+
+// ── Area search exports ──
+// Reuse buildWaypointLabel + escapeXml already defined below.
+// Area search features use flat {source, taxon, date, collector, ...} shape
+// rather than the GeoJSON {geometry, properties} shape the main dataset uses,
+// so we build a compatible props object before passing to buildWaypointLabel.
+
+function areaSearchProps(f) {
+  return {
+    source: f.source,
+    taxon: f.taxon,
+    collection_date: f.source === "herbarium" ? f.date : "",
+    observed_on: f.source === "inat" ? f.date : "",
+    collector: f.collector,
+    observer: f.collector,
+    institution: f.institution,
+    county: f.county,
+    locality: f.locality,
+    elevation_m: f.elevation,
+    quality_grade: f.quality_grade,
+    coordinates_obscured: f.obscured,
+    url: f.url,
+    endemism_category: "",
+    esa_status: "",
+    nv_state_status: "",
+  };
+}
+
+function exportAreaSearchGeoJSON() {
+  if (!areaSearchResultFeatures.length) return;
+  const features = areaSearchResultFeatures.map(f => {
+    const props = areaSearchProps(f);
+    const { title, notes } = buildWaypointLabel(props);
+    return {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [f.lon, f.lat] },
+      properties: { ...props, title, name: title, notes, description: notes,
+                    family: f.family, catalog_number: f.catalog }
+    };
+  });
+  const blob = new Blob([JSON.stringify({ type: "FeatureCollection", features }, null, 2)],
+    { type: "application/json" });
+  triggerDownload(blob, "area_search_results.geojson");
+}
+
+function exportAreaSearchGPX() {
+  if (!areaSearchResultFeatures.length) return;
+  const wpts = areaSearchResultFeatures.map(f => {
+    const props = areaSearchProps(f);
+    const { title, notes } = buildWaypointLabel(props);
+    return `  <wpt lat="${f.lat}" lon="${f.lon}">\n    <name>${escapeXml(title)}</name>\n    <desc>${escapeXml(notes)}</desc>\n  </wpt>`;
+  }).join("\n");
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Nevada Endemics Map" xmlns="http://www.topografix.com/GPX/1/1">\n${wpts}\n</gpx>`;
+  const blob = new Blob(["\uFEFF" + gpx], { type: "application/gpx+xml;charset=utf-8" });
+  triggerDownload(blob, "area_search_results.gpx");
+}
+
+function exportAreaSearchCSV() {
+  if (!areaSearchResultFeatures.length) return;
+  const headers = ["latitude","longitude","taxon","family","source","date","collector",
+                   "institution","catalog_number","county","locality","elevation_m",
+                   "quality_grade","coordinates_obscured","url"];
+  const rows = areaSearchResultFeatures.map(f => [
+    f.lat, f.lon, f.taxon, f.family, f.source, f.date, f.collector,
+    f.institution, f.catalog, f.county, f.locality, f.elevation,
+    f.quality_grade, f.obscured ? "true" : "", f.url
+  ].map(v => escapeCsv(String(v ?? ""))));
+  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  triggerDownload(blob, "area_search_results.csv");
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
 }
 
 function clearAreaSearchResults(resetButton = true) {
+  if (areaSearchClusterGroup) { map.removeLayer(areaSearchClusterGroup); areaSearchClusterGroup = null; }
   if (areaSearchResultLayer) { map.removeLayer(areaSearchResultLayer); areaSearchResultLayer = null; }
   if (areaSearchDrawLayer) { map.removeLayer(areaSearchDrawLayer); areaSearchDrawLayer = null; }
+  areaSearchResultFeatures = [];
+  document.getElementById("area-search-export-group").style.display = "none";
   if (resetButton) {
     setAreaSearchStatus("");
     document.getElementById("area-search-clear-btn").style.display = "none";
@@ -2605,6 +2731,9 @@ async function init() {
   });
   document.getElementById("close-search-poly-btn").addEventListener("click", tryCloseAreaSearchPolygon);
   document.getElementById("area-search-clear-btn").addEventListener("click", () => clearAreaSearchResults(true));
+  document.getElementById("area-search-export-geojson").addEventListener("click", exportAreaSearchGeoJSON);
+  document.getElementById("area-search-export-gpx").addEventListener("click", exportAreaSearchGPX);
+  document.getElementById("area-search-export-csv").addEventListener("click", exportAreaSearchCSV);
   document.querySelectorAll(".area-src-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const src = btn.dataset.src;
