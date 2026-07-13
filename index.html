@@ -616,6 +616,17 @@
     </select>
   </div>
 
+  <!-- County filter -->
+  <div class="panel-section">
+    <h2>County <span style="font-weight:400;text-transform:none;color:var(--text-dim);">(point's actual location)</span></h2>
+    <select id="county-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+      <option value="">All counties</option>
+    </select>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+      Unlike the Physiographic Region filter above, this checks each point's real coordinates against Nevada county boundaries — not a taxon-level tag. 14,804 of 14,816 points resolved with confidence; a handful of records with clearly bad source coordinates (e.g. off the coast, or in another state) are excluded rather than guessed at.
+    </div>
+  </div>
+
   <!-- iNat quality grade -->
   <div class="panel-section">
     <h2>iNat Quality Grade</h2>
@@ -723,7 +734,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-10-v21-gaia-emoji-colors";
+const SCRIPT_VERSION = "2026-07-12-v23-county-boundary-highlight";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -868,6 +879,7 @@ const CONFIG = {
   // Change this path if you move the GeoJSON file
   occurrencesUrl: "data/occurrences.geojson",
   taxaMetaUrl:    "data/taxa_metadata.json",
+  countiesUrl:    "data/nevada_counties.geojson",
 
   // Demo data is now auto-detected at load time (see init()) based on
   // whether data/occurrences.geojson actually loads and has features.
@@ -897,6 +909,7 @@ const state = {
   genus: "",
   region: "",
   section: "",
+  county: "",
   maxAccuracyM: 0,         // 0 = no filter; otherwise max allowed positional_accuracy_m
   excludeObscured: false,
   themes: new Set(),  // populated from data
@@ -906,6 +919,8 @@ const state = {
 // Leaflet objects
 let map, clusterGroup;
 let markersByFeature = new Map();
+let countyBoundaries = null;     // GeoJSON FeatureCollection, fetched once at startup
+let countyBoundaryLayer = null;  // the currently-drawn highlight layer, if any
 
 // ============================================================
 // DEMO DATA — synthetic points when real GeoJSON not available
@@ -1145,6 +1160,7 @@ function buildPopup(props, coords) {
       <div class="popup-row"><span class="lbl">Date:</span> ${props.observed_on || "—"}</div>
       <div class="popup-row"><span class="lbl">Observer:</span> ${props.observer || "—"}</div>
       <div class="popup-row"><span class="lbl">Quality:</span> ${props.quality_grade || "—"}</div>
+      <div class="popup-row"><span class="lbl">County:</span> ${props.county || "—"}</div>
       <div class="popup-row"><span class="lbl">Place:</span> ${props.place_guess || "—"}</div>
       <div class="popup-row"><span class="lbl">GPS accuracy:</span> <span style="color:${accColor};font-weight:600;">${accText}</span></div>
       ${obscuredWarning}
@@ -1187,6 +1203,13 @@ function featureVisible(f) {
   // (see Figs. 2 & 3 in the book — not yet machine-readable).
   if (state.region && !(p.physiographic_region || "").includes(state.region)) return false;
   if (state.section && !(p.physiographic_section || "").includes(state.section)) return false;
+
+  // County filter — unlike region/section above, this IS computed per-point
+  // (point-in-polygon against real county boundaries, see add_county.py).
+  // Points with county === null (unresolved, likely bad source geocoding)
+  // are excluded whenever a specific county is selected, since they can't
+  // be confidently placed in any county.
+  if (state.county && p.county !== state.county) return false;
 
   // Point-level area filter (the draw-polygon tool) — checks whether this
   // specific occurrence falls inside the user-drawn polygon.
@@ -2197,6 +2220,58 @@ function buildGenusSelect() {
 }
 
 // ============================================================
+// COUNTY SELECT
+// ============================================================
+
+function buildCountySelect() {
+  const counties = [...new Set(allFeatures.map(f => f.properties.county || "").filter(Boolean))].sort();
+  const sel = document.getElementById("county-select");
+  counties.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c; opt.textContent = c;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.county = sel.value;
+    updateCountyHighlight();
+    renderMarkers();
+  });
+}
+
+// Draws (or clears) an outline of the currently-selected county on the map.
+// Purely visual — has no effect on which points are shown; that's handled by
+// featureVisible() reading state.county directly against each point's
+// precomputed county field.
+function updateCountyHighlight() {
+  if (countyBoundaryLayer) {
+    map.removeLayer(countyBoundaryLayer);
+    countyBoundaryLayer = null;
+  }
+  if (!state.county || !countyBoundaries) return;
+
+  // state.county is the clean display form, e.g. "Nye County" / "Carson City".
+  // The boundary file's NAME property is the bare county name, e.g. "Nye".
+  const feature = countyBoundaries.features.find(f => {
+    const n = f.properties.NAME;
+    const display = n === "Carson City" ? n : `${n} County`;
+    return display === state.county;
+  });
+  if (!feature) return;
+
+  countyBoundaryLayer = L.geoJSON(feature, {
+    style: {
+      color: getComputedStyle(document.documentElement).getPropertyValue("--accent2").trim() || "#6a9e7f",
+      weight: 2.5,
+      dashArray: "6,4",
+      fill: false,
+    },
+    interactive: false,  // let clicks pass through to markers/basemap underneath
+  }).addTo(map);
+
+  map.fitBounds(countyBoundaryLayer.getBounds(), { padding: [30, 30], maxZoom: 10 });
+}
+
+// ============================================================
 // PHYSIOGRAPHIC REGION / SECTION SELECTS (cascading)
 // ============================================================
 
@@ -2681,12 +2756,23 @@ async function init() {
 
   allFeatures = features;
 
+  // County boundary polygons — used only to visually highlight the selected
+  // county on the map when the County filter is active. Fetched separately
+  // and non-blocking: if this file is missing, the County filter still works
+  // (it filters on the precomputed per-point county field), it just won't
+  // draw an outline.
+  fetch(CONFIG.countiesUrl)
+    .then(r => r.ok ? r.json() : null)
+    .then(geo => { if (geo) countyBoundaries = geo; })
+    .catch(e => console.warn("Could not load county boundaries (highlight-only, non-fatal):", e));
+
   // Pre-assign colors for all taxa in stable alphabetical order
   [...new Set(features.map(f => f.properties.taxon))].sort().forEach(getSpeciesColor);
 
   buildTaxonList();
   buildThemeChips();
   buildGenusSelect();
+  buildCountySelect();
   buildRegionSelects();
   renderMarkers();
 
@@ -2773,6 +2859,7 @@ async function init() {
     state.genus    = "";
     state.region   = "";
     state.section  = "";
+    state.county   = "";
     state.maxAccuracyM = 0;
     state.excludeObscured = false;
     document.querySelectorAll(".chip").forEach(c => c.classList.add("on"));
@@ -2780,6 +2867,8 @@ async function init() {
     document.getElementById("genus-select").value = "";
     document.getElementById("region-select").value = "";
     document.getElementById("section-select").value = "";
+    document.getElementById("county-select").value = "";
+    updateCountyHighlight();
     document.getElementById("accuracy-select").value = "0";
     document.getElementById("exclude-obscured").checked = false;
     document.getElementById("taxon-search").value = "";
