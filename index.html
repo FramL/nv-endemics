@@ -588,7 +588,7 @@
 
   <!-- Physiographic region/section -->
   <div class="panel-section">
-    <h2>Physiographic Region <span style="font-weight:400;text-transform:none;color:var(--text-dim);">(taxon's home range)</span></h2>
+    <h2>Physiographic Region <span style="font-weight:400;text-transform:none;color:var(--text-dim);">(point's actual location)</span></h2>
     <select id="region-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:6px;">
       <option value="">All regions</option>
     </select>
@@ -596,7 +596,7 @@
       <option value="">All sections</option>
     </select>
     <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
-      Filters by where each species' main population occurs per the book — not by each point's exact coordinates. Outlier records may still appear.
+      Checks each point's real coordinates against hand-digitized boundaries adapted from Tiehm & Nachlinger's regions map (Fig. 1) — not a taxon-level tag. 14,804 of 14,816 points resolved with confidence; a handful of records with clearly bad source coordinates are excluded rather than guessed at.
     </div>
   </div>
 
@@ -734,7 +734,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-12-v23-county-boundary-highlight";
+const SCRIPT_VERSION = "2026-07-15-v28-taxa-count-in-record-count";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -880,6 +880,7 @@ const CONFIG = {
   occurrencesUrl: "data/occurrences.geojson",
   taxaMetaUrl:    "data/taxa_metadata.json",
   countiesUrl:    "data/nevada_counties.geojson",
+  regionsUrl:     "data/nevada_regions_sections.geojson",
 
   // Demo data is now auto-detected at load time (see init()) based on
   // whether data/occurrences.geojson actually loads and has features.
@@ -921,6 +922,8 @@ let map, clusterGroup;
 let markersByFeature = new Map();
 let countyBoundaries = null;     // GeoJSON FeatureCollection, fetched once at startup
 let countyBoundaryLayer = null;  // the currently-drawn highlight layer, if any
+let regionBoundaries = null;     // GeoJSON FeatureCollection, fetched once at startup
+let regionBoundaryLayer = null;  // the currently-drawn highlight layer(s), if any
 
 // ============================================================
 // DEMO DATA — synthetic points when real GeoJSON not available
@@ -1193,16 +1196,18 @@ function featureVisible(f) {
   if (!state.endemism.has(p.endemism_category || "endemic")) return false;
   if (!state.sources.has(p.source)) return false;
   if (state.genus && p.genus !== state.genus) return false;
-  // NOTE: physiographic_region/section are properties of the TAXON (assigned
-  // from the book's discussion of where each species' main populations occur),
-  // not of the individual occurrence point's actual coordinates. A taxon whose
-  // primary range is "Northern Great Basin" can still have outlier GBIF/iNat
-  // records far outside that region — this filter includes ALL of that taxon's
-  // points when its region matches, by design. True point-level region
-  // filtering would require GIS polygon boundaries we don't currently have
-  // (see Figs. 2 & 3 in the book — not yet machine-readable).
-  if (state.region && !(p.physiographic_region || "").includes(state.region)) return false;
-  if (state.section && !(p.physiographic_section || "").includes(state.section)) return false;
+  // Region/section are now computed per-point via point-in-polygon against
+  // hand-digitized boundaries traced from the book's regions map (Fig. 1),
+  // see add_regions.py. This replaced the old taxon-level tagging, under
+  // which every occurrence of a taxon inherited one blanket region/section
+  // from the book's intro text regardless of that point's real coordinates
+  // (confirmed: that old scheme disagreed with real point locations for
+  // about 40% of records). Points with region/section === null (unresolved,
+  // likely bad source geocoding — the same ~10 records add_county.py also
+  // couldn't place) are excluded whenever a specific region/section is
+  // selected, same handling as the county filter below.
+  if (state.region && p.physiographic_region !== state.region) return false;
+  if (state.section && p.physiographic_section !== state.section) return false;
 
   // County filter — unlike region/section above, this IS computed per-point
   // (point-in-polygon against real county boundaries, see add_county.py).
@@ -2030,6 +2035,7 @@ function renderMarkers() {
   clusterGroup.clearLayers();
   markersByFeature.clear();
   let count = 0;
+  const taxaSeen = new Set();
 
   allFeatures.forEach(f => {
     if (!featureVisible(f)) return;
@@ -2046,10 +2052,11 @@ function renderMarkers() {
     clusterGroup.addLayer(marker);
     markersByFeature.set(f, marker);
     count++;
+    taxaSeen.add(f.properties.taxon);
   });
 
   document.getElementById("record-count").textContent =
-    `${count.toLocaleString()} record${count !== 1 ? "s" : ""}`;
+    `${count.toLocaleString()} record${count !== 1 ? "s" : ""}, ${taxaSeen.size.toLocaleString()} ${taxaSeen.size === 1 ? "taxon" : "taxa"}`;
 }
 
 // ============================================================
@@ -2117,8 +2124,9 @@ function updateTaxonCard() {
     <div class="tc-row"><span class="tc-label">ESA Status</span><span class="tc-val">${esa}</span></div>
     <div class="tc-row"><span class="tc-label">NV Status</span><span class="tc-val">${nvs}</span></div>
     <div class="tc-row"><span class="tc-label">Book Category</span><span class="tc-val">${meta.book_thematic_category || "—"}</span></div>
-    <div class="tc-row"><span class="tc-label">Region</span><span class="tc-val">${meta.physiographic_region || "—"}</span></div>
-    <div class="tc-row"><span class="tc-label">Section</span><span class="tc-val">${meta.physiographic_section || "—"}</span></div>
+    <div class="tc-row"><span class="tc-label">Book Region</span><span class="tc-val">${meta.physiographic_region || "—"}</span></div>
+    <div class="tc-row"><span class="tc-label">Book Section</span><span class="tc-val">${meta.physiographic_section || "—"}</span></div>
+    <div class="tc-row" style="font-size:10px;color:var(--text-dim);"><span class="tc-label"></span><span class="tc-val">Book's general description — individual points may differ; use the Region/Section filters for exact per-point location.</span></div>
     <div class="tc-row"><span class="tc-label">Herbarium</span><span class="tc-val">${herbCount} records</span></div>
     <div class="tc-row"><span class="tc-label">iNaturalist</span><span class="tc-val">${inatCount} obs.</span></div>
     ${meta.notes ? `<div class="tc-row"><span class="tc-label">Notes</span><span class="tc-val">${meta.notes}</span></div>` : ""}
@@ -2271,6 +2279,42 @@ function updateCountyHighlight() {
   map.fitBounds(countyBoundaryLayer.getBounds(), { padding: [30, 30], maxZoom: 10 });
 }
 
+// Draws (or clears) an outline of the currently-selected region and/or
+// section on the map. Same purely-visual role as updateCountyHighlight —
+// featureVisible() does the actual filtering off precomputed per-point
+// fields. Handles sections traced as multiple disjoint polygons (Bonneville
+// Section, Sierra Nevada Section) by drawing every matching feature, not
+// just the first.
+function updateRegionHighlight() {
+  if (regionBoundaryLayer) {
+    map.removeLayer(regionBoundaryLayer);
+    regionBoundaryLayer = null;
+  }
+  if ((!state.region && !state.section) || !regionBoundaries) return;
+
+  const matches = regionBoundaries.features.filter(f => {
+    const p = f.properties;
+    if (state.section) return p.section === state.section;
+    return p.region === state.region;
+  });
+  if (!matches.length) return;
+
+  regionBoundaryLayer = L.geoJSON(
+    { type: "FeatureCollection", features: matches },
+    {
+      style: {
+        color: getComputedStyle(document.documentElement).getPropertyValue("--accent2").trim() || "#6a9e7f",
+        weight: 2.5,
+        dashArray: "6,4",
+        fill: false,
+      },
+      interactive: false,
+    }
+  ).addTo(map);
+
+  map.fitBounds(regionBoundaryLayer.getBounds(), { padding: [30, 30], maxZoom: 10 });
+}
+
 // ============================================================
 // PHYSIOGRAPHIC REGION / SECTION SELECTS (cascading)
 // ============================================================
@@ -2419,33 +2463,19 @@ function buildPlaceSearch(filter = "") {
 }
 
 function buildRegionSelects() {
-  // Regions/sections can contain compound values like "Central Great Basin / Northern Great Basin"
-  // separated by " / " — split and dedupe so the dropdown lists clean individual options.
-  // We pair each region with its matching section(s) by position when both are compound,
-  // so the section dropdown can cascade off the chosen region.
+  // As of add_regions.py, every point carries one clean region/section value
+  // (computed via point-in-polygon), never the old compound "A / B" strings
+  // that came from taxon-level book tags — so no splitting needed here.
   const regionSet = new Set();
   regionToSections = new Map();
 
   allFeatures.forEach(f => {
-    const rRaw = f.properties.physiographic_region || "";
-    const sRaw = f.properties.physiographic_section || "";
-    const regions = rRaw.split("/").map(x => x.trim()).filter(Boolean);
-    const sections = sRaw.split("/").map(x => x.trim()).filter(Boolean);
-
-    regions.forEach(r => regionSet.add(r));
-
-    // Pair regions with sections: if counts match, pair by index (compound values
-    // were written in matching order, e.g. "A / B" region with "Section1 / Section2").
-    // If counts don't match (e.g. one region, multiple sections), associate every
-    // section with every region as a reasonable fallback.
-    regions.forEach((r, i) => {
-      if (!regionToSections.has(r)) regionToSections.set(r, new Set());
-      if (regions.length === sections.length) {
-        if (sections[i]) regionToSections.get(r).add(sections[i]);
-      } else {
-        sections.forEach(s => regionToSections.get(r).add(s));
-      }
-    });
+    const r = f.properties.physiographic_region;
+    const s = f.properties.physiographic_section;
+    if (!r || !s) return;  // skip unresolved points (region/section === null)
+    regionSet.add(r);
+    if (!regionToSections.has(r)) regionToSections.set(r, new Set());
+    regionToSections.get(r).add(s);
   });
 
   const regionSel = document.getElementById("region-select");
@@ -2480,10 +2510,12 @@ function buildRegionSelects() {
     state.region = regionSel.value;
     state.section = "";       // reset section choice when region changes
     rebuildSectionOptions();
+    updateRegionHighlight();
     renderMarkers();
   });
   sectionSel.addEventListener("change", () => {
     state.section = sectionSel.value;
+    updateRegionHighlight();
     renderMarkers();
   });
 }
@@ -2766,6 +2798,16 @@ async function init() {
     .then(geo => { if (geo) countyBoundaries = geo; })
     .catch(e => console.warn("Could not load county boundaries (highlight-only, non-fatal):", e));
 
+  // Region/section boundary polygons — same purpose and same non-blocking
+  // pattern as counties above. Note this file can have multiple polygon
+  // features sharing the same section name (Bonneville Section: 4 islands;
+  // Sierra Nevada Section: 2 pieces) -- the highlight draws ALL matching
+  // features, not just the first one found.
+  fetch(CONFIG.regionsUrl)
+    .then(r => r.ok ? r.json() : null)
+    .then(geo => { if (geo) regionBoundaries = geo; })
+    .catch(e => console.warn("Could not load region boundaries (highlight-only, non-fatal):", e));
+
   // Pre-assign colors for all taxa in stable alphabetical order
   [...new Set(features.map(f => f.properties.taxon))].sort().forEach(getSpeciesColor);
 
@@ -2869,6 +2911,7 @@ async function init() {
     document.getElementById("section-select").value = "";
     document.getElementById("county-select").value = "";
     updateCountyHighlight();
+    updateRegionHighlight();
     document.getElementById("accuracy-select").value = "0";
     document.getElementById("exclude-obscured").checked = false;
     document.getElementById("taxon-search").value = "";
