@@ -98,9 +98,35 @@
   #ack-banner em { color: var(--text); font-style: italic; }
   #ack-banner .authors { color: var(--accent); }
   #header .spacer { flex: 1; }
+  #record-count-wrap { position: relative; }
   #record-count {
     font-size: 11px; color: var(--text-dim);
-    white-space: nowrap;
+    white-space: nowrap; cursor: pointer;
+    border: 1px solid transparent; border-radius: 4px;
+    padding: 3px 6px;
+  }
+  #record-count:hover { color: var(--accent); border-color: var(--panel-border); }
+  #taxa-dropdown {
+    display: none;
+    position: absolute; top: 100%; right: 0; margin-top: 4px;
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    max-height: 320px; overflow-y: auto;
+    min-width: 240px; max-width: 340px;
+    z-index: 2000; padding: 4px 0;
+  }
+  #taxa-dropdown.open { display: block; }
+  #taxa-dropdown a {
+    display: block; padding: 5px 12px; font-size: 12px;
+    background: var(--bg); color: var(--accent); text-decoration: none; font-style: italic;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #taxa-dropdown a:hover { color: var(--text-bright); }
+  #taxa-dropdown .taxa-dropdown-note {
+    font-size: 10px; color: var(--text-dim); font-style: normal;
+    background: var(--bg);
+    padding: 4px 12px 6px; border-top: 1px solid var(--panel-border);
+    margin-top: 4px; line-height: 1.4;
   }
   #toggle-panel-btn {
     background: none; border: 1px solid var(--panel-border);
@@ -508,7 +534,10 @@
   <h1>Nevada Endemic & Near-Endemic Plants</h1>
   <span class="subtitle">Herbarium &amp; iNaturalist occurrences</span>
   <span class="spacer"></span>
-  <span id="record-count">— records</span>
+  <div id="record-count-wrap">
+    <span id="record-count">— records</span>
+    <div id="taxa-dropdown"></div>
+  </div>
 </div>
 
 <!-- Acknowledgment -->
@@ -734,7 +763,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-15-v28-taxa-count-in-record-count";
+const SCRIPT_VERSION = "2026-07-15-v30-taxa-dropdown-contrast-fix";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -2057,7 +2086,53 @@ function renderMarkers() {
 
   document.getElementById("record-count").textContent =
     `${count.toLocaleString()} record${count !== 1 ? "s" : ""}, ${taxaSeen.size.toLocaleString()} ${taxaSeen.size === 1 ? "taxon" : "taxa"}`;
+
+  currentVisibleTaxa = [...taxaSeen].sort();
+  if (document.getElementById("taxa-dropdown").classList.contains("open")) {
+    renderTaxaDropdown();
+  }
 }
+
+// ============================================================
+// TAXA DROPDOWN (record count -> alphabetical list w/ Wikipedia links)
+// ============================================================
+
+let currentVisibleTaxa = [];
+
+function wikipediaUrl(taxonName) {
+  // Best-effort link, not guaranteed to resolve for every taxon (some rare
+  // endemics may not have a Wikipedia page yet) -- Wikipedia's search will
+  // still land the user somewhere useful even on a miss.
+  return `https://en.wikipedia.org/wiki/${encodeURIComponent(taxonName.replace(/ /g, "_"))}`;
+}
+
+function renderTaxaDropdown() {
+  const el = document.getElementById("taxa-dropdown");
+  if (currentVisibleTaxa.length === 0) {
+    el.innerHTML = `<div class="taxa-dropdown-note">No taxa match the current filters.</div>`;
+    return;
+  }
+  const links = currentVisibleTaxa
+    .map(t => `<a href="${wikipediaUrl(t)}" target="_blank" rel="noopener" title="${t}">${t}</a>`)
+    .join("");
+  el.innerHTML = links + `<div class="taxa-dropdown-note">Links go to Wikipedia by scientific name — not every taxon has a page yet.</div>`;
+}
+
+document.getElementById("record-count").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const el = document.getElementById("taxa-dropdown");
+  const opening = !el.classList.contains("open");
+  el.classList.toggle("open", opening);
+  if (opening) renderTaxaDropdown();
+});
+
+// Close the dropdown on any click outside it
+document.addEventListener("click", (e) => {
+  const wrap = document.getElementById("record-count-wrap");
+  if (!wrap.contains(e.target)) {
+    document.getElementById("taxa-dropdown").classList.remove("open");
+  }
+});
 
 // ============================================================
 // TAXON LIST UI
