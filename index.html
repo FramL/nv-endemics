@@ -651,8 +651,8 @@
   <!-- ===================================================== -->
   <div id="geo-filter-group">
     <div class="geo-group-label">🗺️ Geographic Filters — point's actual location</div>
-    <div style="font-size:10px;color:var(--text-dim);padding:6px 14px 0;line-height:1.4;">
-      County and Physiographic Region/Section: 14,804 of 14,816 points resolved with confidence; a handful of records with clearly bad source coordinates are excluded rather than guessed at.
+    <div id="geo-stats-note" style="font-size:10px;color:var(--text-dim);padding:6px 14px 0;line-height:1.4;">
+      Computing county/region resolution stats…
     </div>
 
     <!-- County filter -->
@@ -812,7 +812,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-16-v34-spring-mountains-text-cleanup";
+const SCRIPT_VERSION = "2026-07-16-v35-dynamic-geo-stats";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -2380,6 +2380,28 @@ function buildCountySelect() {
   });
 }
 
+// Computes the "X of Y points resolved" note live from whatever data is
+// actually loaded, instead of a hardcoded string -- so it's automatically
+// correct after future data refreshes (re-running fetch_occurrences.py +
+// add_county.py + add_regions.py), no manual text editing required.
+// County and region are counted independently and only combined into one
+// sentence if they happen to match exactly -- they aren't guaranteed to,
+// since each is computed by its own script against its own boundary file.
+function renderGeoStatsNote() {
+  const total = allFeatures.length;
+  const countyResolved = allFeatures.filter(f => f.properties.county).length;
+  const regionResolved = allFeatures.filter(f => f.properties.physiographic_region).length;
+
+  const fmt = n => n.toLocaleString();
+  let text;
+  if (countyResolved === regionResolved) {
+    text = `County and Physiographic Region/Section: ${fmt(countyResolved)} of ${fmt(total)} points resolved with confidence; a handful of records with clearly bad source coordinates are excluded rather than guessed at.`;
+  } else {
+    text = `County: ${fmt(countyResolved)} of ${fmt(total)} points resolved. Physiographic Region/Section: ${fmt(regionResolved)} of ${fmt(total)} points resolved. A handful of records with clearly bad source coordinates are excluded rather than guessed at.`;
+  }
+  document.getElementById("geo-stats-note").textContent = text;
+}
+
 // ============================================================
 // NAMED PLACE SELECT
 // ============================================================
@@ -3001,6 +3023,7 @@ async function init() {
   buildCountySelect();
   buildPlaceSelect();
   buildRegionSelects();
+  renderGeoStatsNote();
   renderMarkers();
 
   // ── Wire controls ──
