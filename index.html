@@ -770,7 +770,8 @@
        user-drawn area, regardless of taxon. -->
   <div class="panel-section">
     <h2>Area Herbarium/iNat Search</h2>
-    <p class="panel-note">Draw a polygon or box to search for <em>any</em> plant records there — not just endemics. Requires internet. Large areas will prompt a warning.</p>
+    <p class="panel-note">Draw a polygon or box to search for <em>any</em> plant records there — not just endemics. Optionally filter by genus or full species name below (e.g. "Artemisia" or "Astragalus phoenix"); leave blank for all plants. Requires internet. Large areas or large result sets will prompt a warning.</p>
+    <input type="text" id="area-search-taxon" placeholder="Taxon filter (optional)" autocomplete="off" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text-bright);border-radius:4px;font-size:12px;margin-bottom:6px;box-sizing:border-box;"/>
     <div style="display:flex;gap:5px;margin-bottom:6px;">
       <button class="area-src-btn on" data-src="herbarium">Herbarium</button>
       <button class="area-src-btn on" data-src="inat">iNaturalist</button>
@@ -812,7 +813,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-16-v35-dynamic-geo-stats";
+const SCRIPT_VERSION = "2026-07-16-v39-genus-search-taxonkey-fix";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -1845,8 +1846,31 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
   }
 
   const srcLabel = doHerb && doInat ? "GBIF + iNat" : doHerb ? "GBIF" : "iNaturalist";
-  setAreaSearchStatus(`Searching ${srcLabel} (~${Math.round(ewKm)}km × ${Math.round(nsKm)}km)…`);
+  const taxonFilter = document.getElementById("area-search-taxon").value.trim();
+  const taxonLabel = taxonFilter ? ` for "${taxonFilter}"` : "";
+  setAreaSearchStatus(`Searching ${srcLabel}${taxonLabel} (~${Math.round(ewKm)}km × ${Math.round(nsKm)}km)…`);
   document.getElementById("area-search-clear-btn").style.display = "block";
+
+  // Record-count safety check -- separate from the area-size warning above.
+  // A modest area can still return an enormous number of records if the
+  // taxon filter is broad (a large genus) or blank (every plant). Checked
+  // once the first page of real results comes back and the true total is
+  // known, before committing to paginating through all of it. Cancelling
+  // either source aborts the whole search -- showing partial results from
+  // just one source when the other was cancelled would be misleading about
+  // completeness.
+  const AREA_SEARCH_MAX_RECORDS = 2000;
+  let cancelledDueToSize = false;
+  function confirmLargeResultSet(total, source) {
+    if (total <= AREA_SEARCH_MAX_RECORDS) return true;
+    const proceed = confirm(
+      `This ${source} search matches approximately ${total.toLocaleString()} records — ` +
+      `more than the recommended ${AREA_SEARCH_MAX_RECORDS.toLocaleString()} limit.\n\n` +
+      `Continuing will make many requests and may take a long time.\n\nProceed anyway?`
+    );
+    if (!proceed) cancelledDueToSize = true;
+    return proceed;
+  }
 
   // Use the polygon's bounding box for API queries (APIs don't accept
   // arbitrary polygons), then clip to the exact polygon below.
@@ -1854,6 +1878,33 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
   const latMin = bbox.latMin, latMax = bbox.latMax;
   const lonMin = bbox.lonMin, lonMax = bbox.lonMax;
   const features = [];
+
+  // GBIF's scientificName parameter exact-matches at whatever rank you give
+  // it -- it does NOT expand a bare genus name to include its species (that
+  // only happens for species-level names, which also pull in synonyms).
+  // Confirmed empirically: "Astragalus phoenix" finds records, "Astragalus"
+  // alone finds none, in the same area. So for single-word (genus-level)
+  // input, resolve it to a GBIF taxonKey first via the species-match
+  // endpoint -- taxonKey-based searches DO correctly include every species
+  // under that genus. Multi-word input (a full species name) keeps using
+  // scientificName directly, since that's confirmed to work.
+  let gbifTaxonKey = null;
+  if (doHerb && taxonFilter && !taxonFilter.includes(" ")) {
+    try {
+      const matchParams = new URLSearchParams({ name: taxonFilter, rank: "GENUS", kingdom: "Plantae" });
+      const matchResp = await fetch(`https://api.gbif.org/v1/species/match?${matchParams}`);
+      if (matchResp.ok) {
+        const matchData = await matchResp.json();
+        if (matchData.rank === "GENUS" && matchData.usageKey) {
+          gbifTaxonKey = matchData.usageKey;
+        }
+      }
+    } catch (err) {
+      // Non-fatal -- falls through to scientificName below, which will
+      // likely return zero for a bare genus, but won't crash the search.
+      console.warn("Genus resolution failed, falling back to scientificName:", err);
+    }
+  }
 
   // --- GBIF (herbarium specimens) ---
   if (doHerb) {
@@ -1871,10 +1922,22 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
           decimalLongitude: `${lonMin},${lonMax}`,
           limit, offset
         });
+        if (gbifTaxonKey) {
+          params.set("taxonKey", gbifTaxonKey);
+        } else if (taxonFilter) {
+          params.set("scientificName", taxonFilter);
+        }
         const resp = await fetch(`https://api.gbif.org/v1/occurrence/search?${params}`);
         if (!resp.ok) throw new Error(`GBIF error ${resp.status}`);
         const data = await resp.json();
-        if (totalExpected === null) totalExpected = data.count || 0;
+        if (totalExpected === null) {
+          totalExpected = data.count || 0;
+          if (!confirmLargeResultSet(totalExpected, "GBIF/herbarium")) {
+            setAreaSearchStatus("GBIF search cancelled (result set too large).", "var(--accent)");
+            totalExpected = 0;
+            break;
+          }
+        }
 
         for (const rec of data.results || []) {
           const lat = parseFloat(rec.decimalLatitude);
@@ -1924,10 +1987,18 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
           per_page: perPage, page,
           order: "desc", order_by: "created_at"
         });
+        if (taxonFilter) params.set("taxon_name", taxonFilter);
         const resp = await fetch(`${inatBase}?${params}`);
         if (!resp.ok) throw new Error(`iNat error ${resp.status}`);
         const data = await resp.json();
-        if (totalInat === null) totalInat = data.total_results || 0;
+        if (totalInat === null) {
+          totalInat = data.total_results || 0;
+          if (!confirmLargeResultSet(totalInat, "iNaturalist")) {
+            setAreaSearchStatus("iNaturalist search cancelled (result set too large).", "var(--accent)");
+            totalInat = 0;
+            break;
+          }
+        }
 
         for (const obs of data.results || []) {
           if (!obs.location) continue;
@@ -1960,6 +2031,11 @@ async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
       setAreaSearchStatus(`iNat error: ${err.message}`, "var(--accent)");
       return;
     }
+  }
+
+  if (cancelledDueToSize) {
+    setAreaSearchStatus("Search cancelled (result set too large). Try a smaller area or a narrower taxon filter.", "var(--accent)");
+    return;
   }
 
   if (features.length === 0) {
