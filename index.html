@@ -168,6 +168,33 @@
     color: var(--text-dim); margin-bottom: 8px;
   }
 
+  /* Geographic filter group — visually bundles County, Physiographic
+     Region/Section, and Named Place, since all three now share the same
+     underlying pattern (real per-point coordinates via point-in-polygon,
+     not taxon-level tags). Distinct border + label so it reads as one
+     family at a glance, while each filter keeps its own sub-heading. */
+  #geo-filter-group {
+    border: 1px solid var(--accent2);
+    border-radius: 6px;
+    margin: 10px 12px;
+    flex-shrink: 0;
+  }
+  #geo-filter-group .geo-group-label {
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--accent2);
+    background: rgba(106, 158, 127, 0.12);
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--accent2);
+    border-radius: 5px 5px 0 0;
+  }
+  #geo-filter-group .panel-section {
+    border-bottom: 1px solid var(--panel-border);
+  }
+  #geo-filter-group .panel-section:last-child {
+    border-bottom: none;
+  }
+
   /* Search */
   #taxon-search {
     width: 100%; padding: 6px 8px;
@@ -616,24 +643,57 @@
   </div>
 
   <!-- Physiographic region/section -->
-  <div class="panel-section">
-    <h2>Physiographic Region <span style="font-weight:400;text-transform:none;color:var(--text-dim);">(point's actual location)</span></h2>
-    <select id="region-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:6px;">
-      <option value="">All regions</option>
-    </select>
-    <select id="section-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
-      <option value="">All sections</option>
-    </select>
-    <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
-      Checks each point's real coordinates against hand-digitized boundaries adapted from Tiehm & Nachlinger's regions map (Fig. 1) — not a taxon-level tag. 14,804 of 14,816 points resolved with confidence; a handful of records with clearly bad source coordinates are excluded rather than guessed at.
+  <!-- ===================================================== -->
+  <!-- GEOGRAPHIC FILTERS — County, Physiographic Region/Section,
+       and Named Place all share the same pattern: computed from each
+       point's real coordinates via point-in-polygon, not a taxon-level
+       tag. Grouped together so that's visible at a glance. -->
+  <!-- ===================================================== -->
+  <div id="geo-filter-group">
+    <div class="geo-group-label">🗺️ Geographic Filters — point's actual location</div>
+    <div style="font-size:10px;color:var(--text-dim);padding:6px 14px 0;line-height:1.4;">
+      County and Physiographic Region/Section: 14,804 of 14,816 points resolved with confidence; a handful of records with clearly bad source coordinates are excluded rather than guessed at.
+    </div>
+
+    <!-- County filter -->
+    <div class="panel-section">
+      <h2>County</h2>
+      <select id="county-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+        <option value="">All counties</option>
+      </select>
+    </div>
+
+    <!-- Physiographic region/section filter -->
+    <div class="panel-section">
+      <h2>Physiographic Region</h2>
+      <select id="region-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:6px;">
+        <option value="">All regions</option>
+      </select>
+      <select id="section-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+        <option value="">All sections</option>
+      </select>
+    </div>
+
+    <!-- Named place filter (refuges, etc.) -->
+    <div class="panel-section">
+      <h2>Named Place</h2>
+      <select id="place-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+        <option value="">All / not applicable</option>
+      </select>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+        Real official boundaries (USFWS/USFS) for specific named localities the book discusses.
+      </div>
     </div>
   </div>
 
   <!-- Book thematic category -->
   <div class="panel-section">
-    <h2>Book Category</h2>
+    <h2>Book Category <span style="font-weight:400;text-transform:none;color:var(--text-dim);">(taxon-level, from the book)</span></h2>
     <div class="chip-group" id="theme-chips">
       <!-- populated dynamically from data -->
+    </div>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+      Habitat/distribution descriptors (Cliff-dwelling, Disjunct, Foothills, etc.) — these describe a pattern, not a checkable location, so they stay taxon-level. For an actual place like Ash Meadows, use the Named Place filter above instead — it checks real coordinates, this doesn't.
     </div>
   </div>
 
@@ -643,17 +703,6 @@
     <select id="genus-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
       <option value="">All genera</option>
     </select>
-  </div>
-
-  <!-- County filter -->
-  <div class="panel-section">
-    <h2>County <span style="font-weight:400;text-transform:none;color:var(--text-dim);">(point's actual location)</span></h2>
-    <select id="county-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
-      <option value="">All counties</option>
-    </select>
-    <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
-      Unlike the Physiographic Region filter above, this checks each point's real coordinates against Nevada county boundaries — not a taxon-level tag. 14,804 of 14,816 points resolved with confidence; a handful of records with clearly bad source coordinates (e.g. off the coast, or in another state) are excluded rather than guessed at.
-    </div>
   </div>
 
   <!-- iNat quality grade -->
@@ -763,7 +812,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-15-v30-taxa-dropdown-contrast-fix";
+const SCRIPT_VERSION = "2026-07-16-v34-spring-mountains-text-cleanup";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -910,6 +959,7 @@ const CONFIG = {
   taxaMetaUrl:    "data/taxa_metadata.json",
   countiesUrl:    "data/nevada_counties.geojson",
   regionsUrl:     "data/nevada_regions_sections.geojson",
+  placesUrl:      "data/nevada_named_places.geojson",
 
   // Demo data is now auto-detected at load time (see init()) based on
   // whether data/occurrences.geojson actually loads and has features.
@@ -940,6 +990,7 @@ const state = {
   region: "",
   section: "",
   county: "",
+  namedPlace: "",
   maxAccuracyM: 0,         // 0 = no filter; otherwise max allowed positional_accuracy_m
   excludeObscured: false,
   themes: new Set(),  // populated from data
@@ -953,6 +1004,8 @@ let countyBoundaries = null;     // GeoJSON FeatureCollection, fetched once at s
 let countyBoundaryLayer = null;  // the currently-drawn highlight layer, if any
 let regionBoundaries = null;     // GeoJSON FeatureCollection, fetched once at startup
 let regionBoundaryLayer = null;  // the currently-drawn highlight layer(s), if any
+let placeBoundaries = null;      // GeoJSON FeatureCollection, fetched once at startup
+let placeBoundaryLayer = null;   // the currently-drawn highlight layer, if any
 
 // ============================================================
 // DEMO DATA — synthetic points when real GeoJSON not available
@@ -1244,6 +1297,12 @@ function featureVisible(f) {
   // are excluded whenever a specific county is selected, since they can't
   // be confidently placed in any county.
   if (state.county && p.county !== state.county) return false;
+
+  // Named place — same per-point pattern as county/region, but only tracks
+  // a small, growing set of specific localities (currently just Ash Meadows
+  // NWR), not the whole state. named_place === null is the normal case for
+  // most points (not near any tracked place), not an error.
+  if (state.namedPlace && p.named_place !== state.namedPlace) return false;
 
   // Point-level area filter (the draw-polygon tool) — checks whether this
   // specific occurrence falls inside the user-drawn polygon.
@@ -2321,6 +2380,25 @@ function buildCountySelect() {
   });
 }
 
+// ============================================================
+// NAMED PLACE SELECT
+// ============================================================
+
+function buildPlaceSelect() {
+  const places = [...new Set(allFeatures.map(f => f.properties.named_place || "").filter(Boolean))].sort();
+  const sel = document.getElementById("place-select");
+  places.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p; opt.textContent = p;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.namedPlace = sel.value;
+    updatePlaceHighlight();
+    renderMarkers();
+  });
+}
+
 // Draws (or clears) an outline of the currently-selected county on the map.
 // Purely visual — has no effect on which points are shown; that's handled by
 // featureVisible() reading state.county directly against each point's
@@ -2388,6 +2466,30 @@ function updateRegionHighlight() {
   ).addTo(map);
 
   map.fitBounds(regionBoundaryLayer.getBounds(), { padding: [30, 30], maxZoom: 10 });
+}
+
+// Same purpose again, for the Named Place filter.
+function updatePlaceHighlight() {
+  if (placeBoundaryLayer) {
+    map.removeLayer(placeBoundaryLayer);
+    placeBoundaryLayer = null;
+  }
+  if (!state.namedPlace || !placeBoundaries) return;
+
+  const feature = placeBoundaries.features.find(f => f.properties.place === state.namedPlace);
+  if (!feature) return;
+
+  placeBoundaryLayer = L.geoJSON(feature, {
+    style: {
+      color: getComputedStyle(document.documentElement).getPropertyValue("--accent2").trim() || "#6a9e7f",
+      weight: 2.5,
+      dashArray: "6,4",
+      fill: false,
+    },
+    interactive: false,
+  }).addTo(map);
+
+  map.fitBounds(placeBoundaryLayer.getBounds(), { padding: [30, 30], maxZoom: 10 });
 }
 
 // ============================================================
@@ -2883,6 +2985,13 @@ async function init() {
     .then(geo => { if (geo) regionBoundaries = geo; })
     .catch(e => console.warn("Could not load region boundaries (highlight-only, non-fatal):", e));
 
+  // Named place boundaries — same non-blocking pattern. Small file (currently
+  // just Ash Meadows NWR), grows over time as more places get added.
+  fetch(CONFIG.placesUrl)
+    .then(r => r.ok ? r.json() : null)
+    .then(geo => { if (geo) placeBoundaries = geo; })
+    .catch(e => console.warn("Could not load named place boundaries (highlight-only, non-fatal):", e));
+
   // Pre-assign colors for all taxa in stable alphabetical order
   [...new Set(features.map(f => f.properties.taxon))].sort().forEach(getSpeciesColor);
 
@@ -2890,6 +2999,7 @@ async function init() {
   buildThemeChips();
   buildGenusSelect();
   buildCountySelect();
+  buildPlaceSelect();
   buildRegionSelects();
   renderMarkers();
 
@@ -2977,6 +3087,7 @@ async function init() {
     state.region   = "";
     state.section  = "";
     state.county   = "";
+    state.namedPlace = "";
     state.maxAccuracyM = 0;
     state.excludeObscured = false;
     document.querySelectorAll(".chip").forEach(c => c.classList.add("on"));
@@ -2985,8 +3096,10 @@ async function init() {
     document.getElementById("region-select").value = "";
     document.getElementById("section-select").value = "";
     document.getElementById("county-select").value = "";
+    document.getElementById("place-select").value = "";
     updateCountyHighlight();
     updateRegionHighlight();
+    updatePlaceHighlight();
     document.getElementById("accuracy-select").value = "0";
     document.getElementById("exclude-obscured").checked = false;
     document.getElementById("taxon-search").value = "";

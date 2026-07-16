@@ -134,6 +134,13 @@ def main():
     print(f"Flagged, {NEAR_MISS_KM}-{REVIEW_KM}km away (assigned to nearest, but worth a look): {len(review_list)}")
     print(f"Unresolved, >{REVIEW_KM}km away (county=null, likely bad source geocoding): {len(unresolved_list)}")
 
+    # Write BEFORE the verbose per-record lists below -- if this output ever
+    # gets piped through something like `head` that closes the pipe early,
+    # the process can be killed by SIGPIPE mid-print. Writing first means
+    # the file is always saved even if that happens.
+    args.occurrences.write_text(json.dumps(data), encoding="utf-8")
+    print(f"\nWrote updated {args.occurrences}")
+
     if review_list:
         print()
         print(f"FLAGGED (assigned to nearest county, {NEAR_MISS_KM}-{REVIEW_KM}km away):")
@@ -145,11 +152,6 @@ def main():
         print("UNRESOLVED (county=null, needs a human look):")
         for taxon, source, lat, lon, raw, url in unresolved_list:
             print(f"  - {taxon!r} [{source}] at ({lat:.5f}, {lon:.5f}) — raw was {raw!r} — {url}")
-
-    args.occurrences.write_text(json.dumps(data), encoding="utf-8")
-    print()
-    print(f"Wrote updated {args.occurrences}")
-
 
 if __name__ == "__main__":
     main()

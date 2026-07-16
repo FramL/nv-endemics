@@ -140,6 +140,10 @@ def main():
     print(f"Flagged, {NEAR_MISS_KM}-{REVIEW_KM}km away (assigned to nearest, worth a look): {len(review_list)}")
     print(f"Unresolved, >{REVIEW_KM}km away (region/section=null): {len(unresolved_list)}")
 
+    # Write BEFORE the verbose per-record lists -- see add_county.py for why.
+    args.occurrences.write_text(json.dumps(data), encoding="utf-8")
+    print(f"\nWrote updated {args.occurrences}")
+
     if review_list:
         print()
         print(f"FLAGGED (assigned to nearest section, {NEAR_MISS_KM}-{REVIEW_KM}km away):")
@@ -151,11 +155,6 @@ def main():
         print("UNRESOLVED (region/section=null):")
         for taxon, source, lat, lon, old_sec in unresolved_list:
             print(f"  - {taxon!r} [{source}] at ({lat:.5f}, {lon:.5f}) — old tag was {old_sec!r}")
-
-    args.occurrences.write_text(json.dumps(data), encoding="utf-8")
-    print()
-    print(f"Wrote updated {args.occurrences}")
-
 
 if __name__ == "__main__":
     main()
