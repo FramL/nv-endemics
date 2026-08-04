@@ -97,6 +97,8 @@
   }
   #ack-banner em { color: var(--text); font-style: italic; }
   #ack-banner .authors { color: var(--accent); }
+  #ack-banner .about-link { color: var(--accent2); text-decoration: underline; margin-left: 4px; white-space: nowrap; }
+  #ack-banner .about-link:hover { color: var(--accent); }
   #header .spacer { flex: 1; }
   #record-count-wrap { position: relative; }
   #record-count {
@@ -569,7 +571,7 @@
 
 <!-- Acknowledgment -->
 <div id="ack-banner">
-  <span class="ack-text">This project is intended as a supplement to <em>Nevada Vascular Plants: an Annotated Checklist of the State's Botanical Diversity</em>, by <span class="authors">Arnold (Jerry) Tiehm &amp; Jan Nachlinger</span>.</span>
+  <span class="ack-text">This project is intended as a supplement to <em>Nevada Vascular Plants: an Annotated Checklist of the State's Botanical Diversity</em>, by <span class="authors">Arnold (Jerry) Tiehm &amp; Jan Nachlinger</span>. <a href="about.html" target="_blank" rel="noopener" class="about-link">Click HERE for details about how this site works.</a></span>
 </div>
 
 <!-- Filter Panel -->
@@ -771,6 +773,7 @@
   <div class="panel-section">
     <h2>Area Herbarium/iNat Search</h2>
     <p class="panel-note">Draw a polygon or box to search for <em>any</em> plant records there — not just endemics. Optionally filter by genus or full species name below (e.g. "Artemisia" or "Astragalus phoenix"); leave blank for all plants. Requires internet. Large areas or large result sets will prompt a warning.</p>
+    <p class="panel-note">Note: since this queries GBIF/iNat directly, results may include names that aren't compatible with Tiehm &amp; Nachlinger's checklist (synonyms, excluded taxa). We hope to flag these automatically in a future update.</p>
     <input type="text" id="area-search-taxon" placeholder="Taxon filter (optional)" autocomplete="off" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text-bright);border-radius:4px;font-size:12px;margin-bottom:6px;box-sizing:border-box;"/>
     <div style="display:flex;gap:5px;margin-bottom:6px;">
       <button class="area-src-btn on" data-src="herbarium">Herbarium</button>
@@ -802,6 +805,15 @@
     <button id="clear-btn">Clear all filters</button>
   </div>
 
+  <!-- Attribution / contact -->
+  <div class="panel-section" style="text-align:center;font-size:10px;color:var(--text-dim);border-bottom:none;">
+    <div id="last-refresh-note" style="margin-bottom:8px;">Data last refreshed: —</div>
+    Created by Lee Fram. For suggestions or bug fixes, email:<br/>
+    <a href="mailto:nv_endemics.ambiguous374@passmail.net" style="color:var(--accent2);">nv_endemics.ambiguous374@passmail.net</a>
+    <br/>
+    Open source — <a href="https://github.com/FramL/nv-endemics" target="_blank" rel="noopener" style="color:var(--accent2);">view on GitHub</a>
+  </div>
+
 </div>
 
 <!-- Map -->
@@ -813,7 +825,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-16-v39-genus-search-taxonkey-fix";
+const SCRIPT_VERSION = "2026-07-17-v43-area-search-caveat";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -961,6 +973,7 @@ const CONFIG = {
   countiesUrl:    "data/nevada_counties.geojson",
   regionsUrl:     "data/nevada_regions_sections.geojson",
   placesUrl:      "data/nevada_named_places.geojson",
+  lastRefreshUrl: "data/last_refresh.json",
 
   // Demo data is now auto-detected at load time (see init()) based on
   // whether data/occurrences.geojson actually loads and has features.
@@ -3089,6 +3102,26 @@ async function init() {
     .then(r => r.ok ? r.json() : null)
     .then(geo => { if (geo) placeBoundaries = geo; })
     .catch(e => console.warn("Could not load named place boundaries (highlight-only, non-fatal):", e));
+
+  // "Data last refreshed" note -- written automatically by fetch_occurrences.py
+  // on every full run (see that script for why --taxon/--test runs don't
+  // update it). Non-blocking, and handled gracefully if the file doesn't
+  // exist yet (e.g. before the first run after this feature was added).
+  fetch(CONFIG.lastRefreshUrl)
+    .then(r => r.ok ? r.json() : null)
+    .then(info => {
+      const el = document.getElementById("last-refresh-note");
+      if (info && info.date) {
+        const d = new Date(info.date + "T00:00:00");
+        const formatted = d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+        el.textContent = `Data last refreshed: ${formatted}`;
+      } else {
+        el.textContent = "Data last refreshed: not yet recorded";
+      }
+    })
+    .catch(() => {
+      document.getElementById("last-refresh-note").textContent = "Data last refreshed: not yet recorded";
+    });
 
   // Pre-assign colors for all taxa in stable alphabetical order
   [...new Set(features.map(f => f.properties.taxon))].sort().forEach(getSpeciesColor);

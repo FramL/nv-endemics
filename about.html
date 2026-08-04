@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About — Nevada Endemic & Near-Endemic Plants</title>
+<style>
+  :root {
+    --bg:          #1a1c1e;
+    --panel-bg:    #22252a;
+    --panel-border:#2e333b;
+    --text:        #d4cfc8;
+    --text-dim:    #a8a49c;
+    --text-bright: #f0ece4;
+    --accent:      #c8a85a;
+    --accent2:     #6a9e7f;
+    --font-ui:     'Inter', 'Helvetica Neue', sans-serif;
+    --font-sci:    'Georgia', 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: var(--font-ui);
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 720px; margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+  a { color: var(--accent2); }
+  a:hover { color: var(--accent); }
+  .back-link {
+    display: inline-block; margin-bottom: 24px;
+    font-size: 13px; color: var(--text-dim);
+    text-decoration: none;
+  }
+  .back-link:hover { color: var(--accent); }
+  h1 {
+    font-family: var(--font-sci); font-style: italic;
+    color: var(--accent); font-size: 1.7rem;
+    margin: 0 0 6px;
+  }
+  .subtitle { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 32px; }
+  h2 {
+    font-size: 0.78rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--accent2);
+    border-bottom: 1px solid var(--panel-border);
+    padding-bottom: 6px;
+    margin: 36px 0 12px;
+  }
+  h2:first-of-type { margin-top: 0; }
+  p { margin: 0 0 12px; color: var(--text); font-size: 0.94rem; }
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin-bottom: 6px; font-size: 0.94rem; }
+  code {
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    border-radius: 3px; padding: 1px 5px;
+    font-size: 0.85em; color: var(--text-bright);
+  }
+  .callout {
+    background: rgba(200,168,90,0.08); border: 1px solid var(--accent);
+    border-radius: 6px; padding: 12px 16px;
+    font-size: 0.9rem; margin: 16px 0;
+  }
+  .footer {
+    margin-top: 48px; padding-top: 20px;
+    border-top: 1px solid var(--panel-border);
+    text-align: center; font-size: 0.82rem; color: var(--text-dim);
+  }
+  .footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back-link" href="index.html">← Back to the map</a>
+  <h1>About this site</h1>
+  <div class="subtitle">Nevada Endemic &amp; Near-Endemic Plants — an interactive occurrence map</div>
+
+  <h2>What this is</h2>
+  <p>
+    This site maps herbarium and iNaturalist occurrence records for Nevada's endemic, near-endemic, and
+    disjunct vascular plant taxa. It's intended as a supplement to <em>Nevada Vascular Plants: an
+    Annotated Checklist of the State's Botanical Diversity</em>, by Arnold (Jerry) Tiehm &amp; Jan
+    Nachlinger — that book is the curatorial backbone for which taxa are included and how they're
+    categorized.
+  </p>
+
+  <h2>The site is static, not live</h2>
+  <p>
+    Everything you see — the occurrence points, the county/region/section a point falls into, the
+    conservation status badges — is computed ahead of time and baked into the site as data files, not
+    queried live from GBIF or iNaturalist on the fly. The one exception is the <strong>Area
+    Herbarium/iNat Search</strong> tool, which does query GBIF and iNaturalist live when you draw an
+    area on the map.
+  </p>
+  <p>
+    That means the main dataset is a snapshot, not a real-time feed. It's refreshed roughly
+    <strong>quarterly</strong> — new herbarium and iNaturalist records get pulled in, boundary
+    computations get re-run, and the update goes out as a new version of the site. If something looks
+    outdated or you spot a record that should be here but isn't, it may simply not have been picked up
+    in the most recent refresh yet.
+  </p>
+  <p id="last-refresh-line" style="color:var(--text-dim);font-size:0.88rem;">Data last refreshed: —</p>
+
+  <h2>Where the data comes from</h2>
+  <ul>
+    <li><strong>Herbarium records</strong> — via GBIF (the Global Biodiversity Information Facility),
+      which aggregates specimen data from SEINet/Symbiota portals (including the Intermountain Region
+      Herbarium Network) along with many other providers.</li>
+    <li><strong>iNaturalist observations</strong> — via iNaturalist's public API.</li>
+    <li><strong>Taxon selection and categorization</strong> (endemic / near-endemic / disjunct, book
+      thematic categories, physiographic region/section as originally described) — from Tiehm &amp;
+      Nachlinger's checklist.</li>
+    <li><strong>Conservation status</strong> (ESA, BLM, USFS, Nevada state) — from the Nevada Division
+      of Natural Heritage.</li>
+  </ul>
+
+  <h2>How the geographic filters work</h2>
+  <p>
+    County, Physiographic Region/Section, and Named Place (e.g. Ash Meadows NWR) are computed from each
+    occurrence point's <em>actual coordinates</em>, checked against real boundary data — not from a
+    taxon-level description. A taxon's general range might be described as "Central Great Basin," but
+    an individual outlier record for that taxon could genuinely sit somewhere else — these filters
+    reflect the individual point, not the species as a whole.
+  </p>
+  <p>
+    Book Category is different: it's a taxon-level habitat/distribution descriptor straight from the
+    book (things like "Cliff-dwelling" or "Disjunct" describe a pattern, not a specific checkable
+    location), so it stays a per-taxon tag rather than a per-point spatial filter.
+  </p>
+
+  <h2>A note on precision</h2>
+  <p>
+    Coordinates, boundaries, and category assignments all carry some degree of real-world imprecision —
+    from GPS accuracy on the original collection or observation, from digitizing hand-drawn boundary
+    maps, and from occasional errors in the underlying source data. Records with clearly implausible
+    coordinates (e.g. off the coast, or in another state entirely) are excluded rather than guessed at.
+    Everything else is shown as-is; treat this as a research and exploration tool, not a
+    survey-grade authority.
+  </p>
+
+  <h2>Offline use</h2>
+  <p>
+    This site works as an installable, offline-capable web app. Use the "Download Offline Base Map"
+    option in the panel before heading into the field with no signal — cached map tiles and data will
+    still be available.
+  </p>
+
+  <h2>Area Herbarium/iNat Search — a caveat</h2>
+  <p>
+    Unlike the rest of the site, this tool queries GBIF and iNaturalist live, so it isn't filtered
+    through the same curation as the main dataset. That means results can include names that aren't
+    actually compatible with Tiehm &amp; Nachlinger's checklist — taxonomic synonyms, or taxa the book
+    explicitly excludes. We hope to flag these automatically in a future update; for now, treat results
+    from this tool as a live, unfiltered look at what's in GBIF/iNat for the area, not a
+    checklist-verified list.
+  </p>
+
+  <h2>Exporting your own selection</h2>
+  <p>
+    Whatever's currently visible under your active filters can be exported as GeoJSON, GPX, or CSV from
+    the Export section of the panel — useful for loading a custom point set into Gaia GPS or another GPS
+    app before a field trip.
+  </p>
+
+  <div class="callout">
+    Found a bug, have a data correction, or want to suggest a feature? Contact info is below and also
+    at the bottom of the map's filter panel.
+  </div>
+
+  <div class="footer">
+    Created by Lee Fram. For suggestions or bug fixes, email:<br/>
+    <a href="mailto:nv_endemics.ambiguous374@passmail.net">nv_endemics.ambiguous374@passmail.net</a>
+    <br/><br/>
+    This project is open source — view the code, data pipeline, and full history on
+    <a href="https://github.com/FramL/nv-endemics" target="_blank" rel="noopener">GitHub</a>.
+  </div>
+</div>
+<script>
+  fetch("data/last_refresh.json")
+    .then(r => r.ok ? r.json() : null)
+    .then(info => {
+      const el = document.getElementById("last-refresh-line");
+      if (info && info.date) {
+        const d = new Date(info.date + "T00:00:00");
+        const formatted = d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+        el.textContent = `Data last refreshed: ${formatted}`;
+      } else {
+        el.textContent = "Data last refreshed: not yet recorded";
+      }
+    })
+    .catch(() => {
+      document.getElementById("last-refresh-line").textContent = "Data last refreshed: not yet recorded";
+    });
+</script>
+</body>
+</html>

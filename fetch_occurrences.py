@@ -15,7 +15,11 @@ Requirements:
 Usage:
     python fetch_occurrences.py                  # full run
     python fetch_occurrences.py --test           # test on first 5 taxa only
-    python fetch_occurrences.py --taxon "Lepidium tiehmii"  # single taxon
+
+To safely re-fetch just ONE taxon (e.g. after a full run where it failed to
+come in), use patch_taxon.py instead — it merges into the existing
+occurrences.geojson rather than overwriting it:
+    python patch_taxon.py "Lepidium tiehmii"
 """
 
 import argparse
@@ -23,6 +27,7 @@ import csv
 import json
 import time
 import sys
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import requests
@@ -35,6 +40,7 @@ from tqdm import tqdm
 TAXA_CSV = Path("data/taxa.csv")
 OUTPUT_GEOJSON = Path("data/occurrences.geojson")
 OUTPUT_TAXA_JSON = Path("data/taxa_metadata.json")
+OUTPUT_LAST_REFRESH = Path("data/last_refresh.json")
 
 # GBIF — Global Biodiversity Information Facility
 # GBIF aggregates herbarium/specimen records from SEINet/Symbiota portals
@@ -303,7 +309,6 @@ def main():
 
     parser = argparse.ArgumentParser(description="Fetch Nevada endemic plant occurrences")
     parser.add_argument("--test", action="store_true", help="Run on first 5 taxa only")
-    parser.add_argument("--taxon", type=str, help="Run for a single taxon name")
     parser.add_argument("--inat-rg-only", action="store_true",
                         help="Fetch only research-grade iNat observations (default: all grades)")
     parser.add_argument("--skip-gbif", action="store_true", help="Skip GBIF (herbarium) fetch")
@@ -312,12 +317,7 @@ def main():
 
     taxa = load_taxa(TAXA_CSV)
 
-    if args.taxon:
-        taxa = [t for t in taxa if args.taxon.lower() in t["taxon"].lower()]
-        if not taxa:
-            print(f"No taxon matching '{args.taxon}' found in {TAXA_CSV}")
-            sys.exit(1)
-    elif args.test:
+    if args.test:
         taxa = taxa[:5]
 
     print(f"Processing {len(taxa)} taxa...")
@@ -393,6 +393,23 @@ def main():
     # Write taxa metadata JSON (consumed by web app)
     with open(OUTPUT_TAXA_JSON, "w", encoding="utf-8") as f:
         json.dump(taxa_metadata, f, ensure_ascii=False, indent=2)
+
+    # Stamp the "data last refreshed" date shown on the site -- but only for
+    # a genuine full run. --test runs don't refresh the whole dataset, so
+    # stamping those as "refreshed" would be misleading. (Single-taxon
+    # patches go through patch_taxon.py, a separate script, and don't touch
+    # this stamp either -- a one-taxon patch isn't "the data was refreshed.")
+    if not args.test:
+        OUTPUT_LAST_REFRESH.parent.mkdir(parents=True, exist_ok=True)
+        with open(OUTPUT_LAST_REFRESH, "w", encoding="utf-8") as f:
+            json.dump({
+                "date": date.today().isoformat(),
+                "taxa_count": len(taxa),
+                "record_count": len(all_features),
+            }, f, indent=2)
+        print(f"Stamped data/last_refresh.json ({date.today().isoformat()})")
+    else:
+        print("Skipped last_refresh.json stamp (--test run, not a full refresh)")
     print(f"Wrote taxa metadata to {OUTPUT_TAXA_JSON}")
 
 
