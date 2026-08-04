@@ -1,0 +1,3440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nevada Endemic Plants</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#22252a">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<!-- Leaflet.markercluster -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+
+<style>
+  /* ── Design tokens ── */
+  :root {
+    --bg:          #1a1c1e;
+    --panel-bg:    #22252a;
+    --panel-border:#2e333b;
+    --text:        #d4cfc8;
+    --text-dim:    #a8a49c;
+    --text-bright: #f0ece4;
+    --accent:      #c8a85a;       /* desert gold */
+    --accent2:     #6a9e7f;       /* sage green  */
+    --esa-color:   #e05a4a;       /* ESA listed  */
+    --nv-color:    #c86e2a;       /* NV protected */
+    --font-ui:     'Inter', 'Helvetica Neue', sans-serif;
+    --font-sci:    'Georgia', 'Times New Roman', serif;
+    --panel-w:     300px;
+    --header-h:    48px;
+    --ack-h:       30px;
+  }
+
+  /* ── Source / endemism color coding ── */
+  /* Herbarium = circles; iNat = diamonds  */
+  /* Endemic = solid fill; near-endemic = ring; disjunct = dotted ring */
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 13px; }
+  /* Background image shows in the panel and header areas where map tiles
+     don't cover it. A separate faint overlay is added to the map via JS. */
+  #panel {
+    background-image: url("bg-primula.jpg");
+    background-size: cover;
+    background-position: center;
+    position: relative; /* needed for ::before absolute positioning */
+  }
+  #panel::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: var(--panel-bg);
+    opacity: 0.90;
+    pointer-events: none;
+    z-index: 0;
+  }
+  #panel > * { position: relative; z-index: 1; }
+
+  /* ── Header ── */
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; height: var(--header-h);
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--panel-border);
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 14px; z-index: 1100;
+  }
+  #header h1 {
+    font-family: var(--font-sci);
+    font-size: 15px; font-style: italic;
+    color: var(--accent); white-space: nowrap;
+    letter-spacing: 0.02em;
+  }
+  #header .subtitle {
+    font-size: 11px; color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  /* ── Acknowledgment banner ── */
+  #ack-banner {
+    position: fixed; top: var(--header-h); left: 0; right: 0; height: var(--ack-h);
+    background: rgba(200,168,90,0.07);
+    border-bottom: 1px solid var(--panel-border);
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 14px; z-index: 1090;
+    font-size: 11px; color: var(--text-dim);
+    text-align: center;
+  }
+  #ack-banner em { color: var(--text); font-style: italic; }
+  #ack-banner .authors { color: var(--accent); }
+  #ack-banner .about-link { color: var(--accent2); text-decoration: underline; margin-left: 4px; white-space: nowrap; }
+  #ack-banner .about-link:hover { color: var(--accent); }
+  #header .spacer { flex: 1; }
+  #record-count-wrap { position: relative; }
+  #record-count {
+    font-size: 11px; color: var(--text-dim);
+    white-space: nowrap; cursor: pointer;
+    border: 1px solid transparent; border-radius: 4px;
+    padding: 3px 6px;
+  }
+  #record-count:hover { color: var(--accent); border-color: var(--panel-border); }
+  #taxa-dropdown {
+    display: none;
+    position: absolute; top: 100%; right: 0; margin-top: 4px;
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    max-height: 320px; overflow-y: auto;
+    min-width: 240px; max-width: 340px;
+    z-index: 2000; padding: 4px 0;
+  }
+  #taxa-dropdown.open { display: block; }
+  #taxa-dropdown a {
+    display: block; padding: 5px 12px; font-size: 12px;
+    background: var(--bg); color: var(--accent); text-decoration: none; font-style: italic;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #taxa-dropdown a:hover { color: var(--text-bright); }
+  #taxa-dropdown .taxa-dropdown-note {
+    font-size: 10px; color: var(--text-dim); font-style: normal;
+    background: var(--bg);
+    padding: 4px 12px 6px; border-top: 1px solid var(--panel-border);
+    margin-top: 4px; line-height: 1.4;
+  }
+  #toggle-panel-btn {
+    background: none; border: 1px solid var(--panel-border);
+    color: var(--text); border-radius: 4px;
+    padding: 4px 9px; cursor: pointer; font-size: 12px;
+  }
+  #toggle-panel-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Map ── */
+  #map {
+    position: fixed;
+    top: calc(var(--header-h) + var(--ack-h)); bottom: 0;
+    left: var(--panel-w); right: 0;
+    z-index: 1;
+    transition: left 0.25s ease;
+  }
+  #map.full { left: 0; }
+
+  /* ── Side panel ── */
+  #panel {
+    position: fixed;
+    top: calc(var(--header-h) + var(--ack-h)); bottom: 0; left: 0;
+    width: var(--panel-w);
+    border-right: 1px solid var(--panel-border);
+    overflow-y: auto; overflow-x: hidden;
+    z-index: 1000;
+    display: flex; flex-direction: column;
+    transition: transform 0.25s ease;
+  }
+  #panel.hidden { transform: translateX(-100%); }
+
+  .panel-section {
+    border-bottom: 1px solid var(--panel-border);
+    padding: 12px 14px;
+  }
+  .panel-section h2 {
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text-dim); margin-bottom: 8px;
+  }
+
+  /* Geographic filter group — visually bundles County, Physiographic
+     Region/Section, and Named Place, since all three now share the same
+     underlying pattern (real per-point coordinates via point-in-polygon,
+     not taxon-level tags). Distinct border + label so it reads as one
+     family at a glance, while each filter keeps its own sub-heading. */
+  #geo-filter-group {
+    border: 1px solid var(--accent2);
+    border-radius: 6px;
+    margin: 10px 12px;
+    flex-shrink: 0;
+  }
+  #geo-filter-group .geo-group-label {
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--accent2);
+    background: rgba(106, 158, 127, 0.12);
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--accent2);
+    border-radius: 5px 5px 0 0;
+  }
+  #geo-filter-group .panel-section {
+    border-bottom: 1px solid var(--panel-border);
+  }
+  #geo-filter-group .panel-section:last-child {
+    border-bottom: none;
+  }
+
+  /* Search */
+  #taxon-search {
+    width: 100%; padding: 6px 8px;
+    background: var(--bg); border: 1px solid var(--panel-border);
+    color: var(--text-bright); border-radius: 4px;
+    font-family: var(--font-sci); font-size: 12px; font-style: italic;
+  }
+  #taxon-search:focus { outline: none; border-color: var(--accent); }
+
+  #taxon-list {
+    margin-top: 6px; max-height: 180px;
+    overflow-y: auto; list-style: none;
+  }
+  #taxon-list li {
+    padding: 4px 6px; cursor: pointer;
+    border-radius: 3px; font-family: var(--font-sci);
+    font-style: italic; font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  #taxon-list li:hover { background: rgba(200,168,90,0.12); }
+  #taxon-list li.active { background: rgba(200,168,90,0.22); color: var(--accent); }
+
+  .taxon-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* Place search — same layout as taxon search, but place names aren't
+     scientific names, so no italic styling. */
+  #place-search {
+    width: 100%; padding: 6px 8px;
+    background: var(--bg); border: 1px solid var(--panel-border);
+    color: var(--text-bright); border-radius: 4px;
+    font-family: var(--font-ui); font-size: 12px;
+  }
+  #place-search:focus { outline: none; border-color: var(--accent); }
+
+  #place-list {
+    margin-top: 6px; max-height: 160px;
+    overflow-y: auto; list-style: none;
+  }
+  #place-list li {
+    padding: 5px 6px; cursor: pointer;
+    border-radius: 3px; font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+    justify-content: space-between;
+  }
+  #place-list li:hover { background: rgba(200,168,90,0.12); }
+  #place-list .place-name { color: var(--text); }
+  #place-list .place-type {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+
+  /* Filter chips */
+  .chip-group { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip {
+    padding: 3px 8px; border-radius: 12px; cursor: pointer;
+    font-size: 11px; border: 1px solid var(--panel-border);
+    color: var(--text-dim); background: transparent;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+  .chip.esa.on { background: var(--esa-color); border-color: var(--esa-color); }
+  .chip.nv.on  { background: var(--nv-color);  border-color: var(--nv-color); }
+
+  /* Source toggle */
+  .source-row { display: flex; gap: 6px; }
+  .src-btn {
+    flex: 1; padding: 5px; text-align: center;
+    border: 1px solid var(--panel-border); border-radius: 4px;
+    cursor: pointer; font-size: 11px; color: var(--text-dim);
+    background: transparent; transition: all 0.15s;
+  }
+  .src-btn .sym { display: block; font-size: 16px; line-height: 1; }
+  .src-btn.on { border-color: var(--accent2); color: var(--accent2); background: rgba(106,158,127,0.12); }
+
+  /* Legend */
+  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 11px; }
+  .legend-sym { width: 18px; text-align: center; flex-shrink: 0; }
+
+  /* Taxon info card */
+  #taxon-card {
+    padding: 12px 14px;
+    background: rgba(200,168,90,0.06);
+    border-bottom: 1px solid var(--panel-border);
+    display: none;
+  }
+  #taxon-card.visible { display: block; }
+  #taxon-card .tc-name {
+    font-family: var(--font-sci); font-style: italic;
+    font-size: 14px; color: var(--accent);
+    margin-bottom: 6px;
+  }
+  #taxon-card .tc-row {
+    display: flex; gap: 4px; margin-bottom: 3px;
+    font-size: 11px; align-items: baseline;
+  }
+  #taxon-card .tc-label { color: var(--text-dim); min-width: 80px; }
+  #taxon-card .tc-val  { color: var(--text-bright); }
+  .badge {
+    display: inline-block; padding: 1px 6px;
+    border-radius: 10px; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .badge-esa  { background: var(--esa-color);  color: #fff; }
+  .badge-nv   { background: var(--nv-color);   color: #fff; }
+  .badge-endemic     { background: #3a4a5c; color: #8ab4d4; }
+  .badge-near-endemic{ background: #3a4030; color: #8ac49a; }
+  .badge-disjunct    { background: #3a3040; color: #c4a0d4; }
+
+  /* Area herbarium search */
+  .area-src-btn {
+    flex: 1; padding: 5px 8px; font-size: 11px; font-weight: 600;
+    border-radius: 4px; cursor: pointer; transition: all 0.15s;
+    background: rgba(200,168,90,0.08); border: 1px solid var(--panel-border);
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .area-src-btn.on { background: rgba(200,168,90,0.2); border-color: var(--accent); color: var(--accent); }
+  #area-search-draw-btn, #area-search-box-btn {
+    flex: 1; padding: 8px 4px;
+    background: rgba(200,168,90,0.15); border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; transition: all 0.15s;
+  }
+  #area-search-draw-btn:hover, #area-search-box-btn:hover { background: rgba(200,168,90,0.3); }
+  #area-search-draw-btn.active, #area-search-box-btn.active { background: var(--accent); color: var(--bg); }
+  #area-search-status {
+    margin-top: 8px; font-size: 11px; color: var(--text-dim);
+    line-height: 1.4; min-height: 0;
+  }
+  #area-search-clear-btn {
+    width: 100%; padding: 6px 8px;
+    background: rgba(200,168,90,0.08); border: 1px solid var(--panel-border);
+    color: var(--text-dim); border-radius: 4px;
+    cursor: pointer; font-size: 11px; transition: all 0.15s;
+  }
+  #area-search-clear-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .area-search-export-btn {
+    flex: 1; padding: 6px 4px; font-size: 11px; font-weight: 600;
+    border-radius: 4px; cursor: pointer; transition: all 0.15s;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .area-search-export-btn:hover { background: rgba(106,158,127,0.3); }
+
+  /* Offline base map */
+  .panel-note {
+    font-size: 11px; color: var(--text-dim); line-height: 1.4;
+    margin: 0 0 8px 0;
+  }
+  #download-offline-map-btn {
+    width: 100%; padding: 8px;
+    background: rgba(200,168,90,0.15); border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #download-offline-map-btn:hover { background: rgba(200,168,90,0.3); }
+  #download-offline-map-btn:disabled {
+    opacity: 0.6; cursor: default; background: rgba(106,158,127,0.15);
+    border-color: var(--accent2); color: var(--accent2);
+  }
+
+  /* Area filter */
+  #draw-area-btn, #draw-box-btn {
+    flex: 1; padding: 8px 4px;
+    background: rgba(200,168,90,0.15); border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #draw-area-btn:hover, #draw-box-btn:hover { background: rgba(200,168,90,0.3); }
+  #draw-area-btn.active, #draw-box-btn.active { background: var(--accent); color: var(--bg); }
+  #close-poly-btn, #close-search-poly-btn {
+    width: 100%; padding: 8px;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; transition: all 0.15s;
+  }
+  #close-poly-btn:hover, #close-search-poly-btn:hover { background: rgba(106,158,127,0.3); }
+  #area-status {
+    display: none; align-items: center; justify-content: space-between;
+    margin-top: 8px; padding: 6px 10px;
+    background: rgba(200,168,90,0.1); border: 1px solid var(--panel-border);
+    border-radius: 4px; font-size: 11px; color: var(--accent);
+  }
+  #area-status.visible { display: flex; }
+  #clear-area-btn {
+    background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 13px; padding: 0 0 0 8px; line-height: 1;
+  }
+  #clear-area-btn:hover { color: var(--accent); }
+
+  /* Export */
+  #export-btn {
+    width: 100%; padding: 8px;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #export-btn:hover { background: rgba(106,158,127,0.3); }
+
+  #export-csv-btn {
+    width: 100%; padding: 8px;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #export-csv-btn:hover { background: rgba(106,158,127,0.3); }
+
+  #export-gpx-btn {
+    width: 100%; padding: 8px;
+    background: rgba(106,158,127,0.15); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  #export-gpx-btn:hover { background: rgba(106,158,127,0.3); }
+
+  #clear-btn {
+    width: 100%; padding: 6px;
+    background: transparent; border: 1px solid var(--panel-border);
+    color: var(--text-dim); border-radius: 4px;
+    cursor: pointer; font-size: 11px; margin-top: 5px;
+    transition: all 0.15s;
+  }
+  #clear-btn:hover { border-color: var(--text-dim); color: var(--text); }
+
+  /* Popup */
+  .leaflet-popup-content-wrapper {
+    background: var(--panel-bg) !important;
+    border: 1px solid var(--panel-border) !important;
+    border-radius: 6px !important;
+    color: var(--text) !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+  }
+  .leaflet-popup-tip { background: var(--panel-bg) !important; }
+  .leaflet-popup-content { margin: 10px 14px !important; min-width: 220px; }
+  .popup-name {
+    font-family: var(--font-sci); font-style: italic;
+    font-size: 13px; color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .popup-row { font-size: 11px; margin-bottom: 2px; }
+  .popup-row .lbl { color: var(--text-dim); }
+  .popup-coords {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; margin: 6px 0; padding: 4px 6px;
+    background: rgba(200,168,90,0.08); border-radius: 4px;
+    font-family: 'Courier New', monospace;
+  }
+  .popup-coords .coord-val { color: var(--text-bright); flex: 1; }
+  .copy-coords-btn {
+    background: rgba(106,158,127,0.18); border: 1px solid var(--accent2);
+    color: var(--accent2); border-radius: 3px;
+    padding: 2px 7px; font-size: 10px; cursor: pointer;
+    font-family: var(--font-ui);
+    transition: all 0.15s;
+  }
+  .copy-coords-btn:hover { background: rgba(106,158,127,0.32); }
+  .copy-coords-btn.copied { background: var(--accent2); color: var(--bg); }
+  .popup-link {
+    display: inline-block; margin-top: 6px;
+    font-size: 11px; color: var(--accent2);
+    text-decoration: none;
+  }
+  .popup-link:hover { text-decoration: underline; }
+
+  /* Loading overlay */
+  #loading {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 9999; gap: 12px;
+  }
+  #loading .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--panel-border);
+    border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  #loading p { color: var(--text-dim); font-size: 13px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 3px; }
+
+  /* Offline base-map caching progress — small, unobtrusive, bottom-right.
+     Hidden (empty/no content) once caching is done or not running. */
+  #offline-cache-status {
+    position: fixed; bottom: 10px; right: 10px;
+    background: rgba(34,37,42,0.92); color: var(--accent);
+    border: 1px solid var(--panel-border); border-radius: 5px;
+    padding: 6px 10px; font-size: 11px;
+    z-index: 1500; display: none;
+    max-width: 240px;
+  }
+  #offline-cache-status.visible { display: block; }
+
+  /* ── Mobile (narrow viewport) ──
+     Triggers on viewport width, not device detection — applies any time the
+     browser window is this narrow, including a resized desktop window. */
+  @media (max-width: 768px) {
+    :root { --ack-h: 46px; }  /* taller, to fit two wrapped lines instead of clipping */
+
+    #header { padding: 0 10px; gap: 8px; }
+    #header .subtitle { display: none; }  /* dropped to make room — title + controls fit on one row */
+    #header h1 { font-size: 13px; }
+    #record-count { font-size: 10px; }
+
+    #ack-banner { font-size: 10px; line-height: 1.3; padding: 2px 10px; }
+
+    /* Sidebar becomes a full-height overlay drawer instead of permanently
+       squeezing the map into a sliver. Hidden by default on load (see init()
+       in the script below); opened/closed with the existing toggle button. */
+    #panel {
+      width: 85vw;
+      max-width: 320px;
+      z-index: 1200;
+      box-shadow: 2px 0 14px rgba(0,0,0,0.45);
+    }
+    /* Map always full-width on mobile — the panel now overlays it rather
+       than pushing it, so #map never needs to shift left. */
+    #map { left: 0; }
+
+    /* Larger touch targets for filter chips and toggle buttons */
+    .chip { padding: 7px 13px; font-size: 12.5px; }
+    .src-btn { padding: 10px; font-size: 12px; }
+    #clear-area-btn { padding: 6px 4px 6px 10px; font-size: 15px; }
+    #toggle-panel-btn { padding: 7px 12px; font-size: 14px; }
+    #taxon-list li, #place-list li { padding: 8px 6px; font-size: 13px; }
+    #taxon-search, #place-search { padding: 9px 10px; font-size: 13px; }
+
+    .leaflet-popup-content { min-width: 0; max-width: calc(100vw - 60px); }
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <p>Loading occurrence data…</p>
+</div>
+
+<div id="offline-cache-status"></div>
+
+<!-- Header -->
+<div id="header">
+  <button id="toggle-panel-btn" title="Toggle filter panel">☰ Filters</button>
+  <h1>Nevada Endemic & Near-Endemic Plants</h1>
+  <span class="subtitle">Herbarium &amp; iNaturalist occurrences</span>
+  <span class="spacer"></span>
+  <div id="record-count-wrap">
+    <span id="record-count">— records</span>
+    <div id="taxa-dropdown"></div>
+  </div>
+</div>
+
+<!-- Acknowledgment -->
+<div id="ack-banner">
+  <span class="ack-text">This project is intended as a supplement to <em>Nevada Vascular Plants: an Annotated Checklist of the State's Botanical Diversity</em>, by <span class="authors">Arnold (Jerry) Tiehm &amp; Jan Nachlinger</span>. <a href="about.html" target="_blank" rel="noopener" class="about-link">Click HERE for details about how this site works.</a></span>
+</div>
+
+<!-- Filter Panel -->
+<div id="panel">
+
+  <!-- Simple/Advanced mode toggle -->
+  <div class="panel-section" style="border-bottom:1px solid var(--accent2);">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text);">
+      <input type="checkbox" id="advanced-mode-toggle" style="cursor:pointer;"/>
+      Show advanced filters &amp; additional taxa (non-endemic, special-status, or rarity-ranked)
+    </label>
+  </div>
+
+  <!-- Place name search -->
+  <div class="panel-section">
+    <h2>Go to Place</h2>
+    <input type="text" id="place-search" placeholder="Mountain range, valley, park…" autocomplete="off"/>
+    <ul id="place-list"></ul>
+  </div>
+
+  <!-- Area filter — draw a polygon or box on the map; only points inside
+       it pass every other filter too. Complements taxon-level region/section. -->
+  <div class="panel-section">
+    <h2>Area Filter</h2>
+    <div style="display:flex;gap:5px;margin-bottom:6px;">
+      <button id="draw-area-btn">⬡ Polygon</button>
+      <button id="draw-box-btn">▭ Box</button>
+    </div>
+    <button id="close-poly-btn" style="display:none;margin-top:0;">✓ Close Polygon (or Enter)</button>
+    <div id="area-status">
+      <span id="area-status-text"></span>
+      <button id="clear-area-btn" title="Clear area filter">✕</button>
+    </div>
+  </div>
+
+  <!-- Taxon search & list -->
+  <div class="panel-section">
+    <h2>Taxon</h2>
+    <input type="text" id="taxon-search" placeholder="Search scientific name…" autocomplete="off"/>
+    <ul id="taxon-list"></ul>
+  </div>
+
+  <!-- Taxon info card (shown when a taxon is selected) -->
+  <div id="taxon-card"></div>
+
+  <!-- Endemism category -->
+  <div class="panel-section">
+    <h2>Endemism Category</h2>
+    <div class="chip-group" id="endemism-chips">
+      <button class="chip on" data-val="endemic">Endemic</button>
+      <button class="chip on" data-val="near-endemic">Near-endemic</button>
+      <button class="chip on" data-val="disjunct">Disjunct</button>
+      <button class="chip" data-val="listed" id="nonendemic-chip" style="display:none;">Non-endemic</button>
+    </div>
+    <div id="nonendemic-note" style="display:none;font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+      "Non-endemic" = officially BLM/USFS/ESA/NV special-status per the Nevada Division of Natural Heritage, or tracked on NDNH's watchlist and ranked for rarity by NatureServe — but not a narrow Nevada endemic. Independent of the other three, and independent of Conservation Status/Rarity Rank below; a taxon can be Endemic <em>and</em> ESA-listed, or Non-endemic with no rank at all.
+    </div>
+  </div>
+
+  <!-- Data source -->
+  <div class="panel-section">
+    <h2>Data Source</h2>
+    <div class="source-row">
+      <button class="src-btn on" id="src-herbarium">
+        <span class="sym">●</span>
+        Herbarium
+      </button>
+      <button class="src-btn on" id="src-inat">
+        <span class="sym">◆</span>
+        iNaturalist
+      </button>
+    </div>
+  </div>
+
+  <!-- Conservation status -->
+  <div class="panel-section">
+    <h2>Conservation Status</h2>
+    <div class="chip-group">
+      <button class="chip esa on" data-filter="esa">ESA Listed</button>
+      <button class="chip nv on"  data-filter="nv">NV Protected</button>
+      <button class="chip on" data-filter="unlisted">Unlisted</button>
+    </div>
+    <div id="advanced-status-group" style="display:none;">
+      <div style="margin-top:10px;">
+        <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">BLM Status</label>
+        <select id="blm-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:8px;">
+          <option value="">All / unlisted</option>
+        </select>
+        <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">USFS Status</label>
+        <select id="usfs-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:8px;">
+          <option value="">All / unlisted</option>
+        </select>
+        <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">NatureServe Rarity Rank</label>
+        <select id="grank-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+          <option value="">All / unranked</option>
+          <option value="ANY">Any rank (G1–G5, regardless of which)</option>
+        </select>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;line-height:1.4;">
+        Per the Nevada Division of Natural Heritage. All three are taxon-level statuses, same as ESA/NV above — and independent of endemism, so these apply to Endemic/Near-endemic/Disjunct taxa too, not just Non-endemic ones. NatureServe Rarity Rank is a scientific rarity assessment (G1 = Critically Imperiled globally, through G5 = Secure) — a different kind of thing from BLM/USFS/ESA/NV, which are legal designations.
+      </div>
+    </div>
+  </div>
+
+  <!-- Physiographic region/section -->
+  <!-- ===================================================== -->
+  <!-- GEOGRAPHIC FILTERS — County, Physiographic Region/Section,
+       and Named Place all share the same pattern: computed from each
+       point's real coordinates via point-in-polygon, not a taxon-level
+       tag. Grouped together so that's visible at a glance. -->
+  <!-- ===================================================== -->
+  <div id="geo-filter-group">
+    <div class="geo-group-label">🗺️ Geographic Filters — point's actual location</div>
+    <div id="geo-stats-note" style="font-size:10px;color:var(--text-dim);padding:6px 14px 0;line-height:1.4;">
+      Computing county/region resolution stats…
+    </div>
+
+    <!-- County filter -->
+    <div class="panel-section">
+      <h2>County</h2>
+      <select id="county-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+        <option value="">All counties</option>
+      </select>
+    </div>
+
+    <!-- Physiographic region/section filter -->
+    <div class="panel-section">
+      <h2>Physiographic Region</h2>
+      <select id="region-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:6px;">
+        <option value="">All regions</option>
+      </select>
+      <select id="section-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+        <option value="">All sections</option>
+      </select>
+    </div>
+
+    <!-- Named place filter (refuges, etc.) -->
+    <div class="panel-section">
+      <h2>Named Place</h2>
+      <select id="place-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+        <option value="">All / not applicable</option>
+      </select>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+        Real official boundaries (USFWS/USFS) for specific named localities the book discusses.
+      </div>
+    </div>
+  </div>
+
+  <!-- Book thematic category -->
+  <div class="panel-section">
+    <h2>Book Category <span style="font-weight:400;text-transform:none;color:var(--text-dim);">(taxon-level, from the book)</span></h2>
+    <div class="chip-group" id="theme-chips">
+      <!-- populated dynamically from data -->
+    </div>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+      Habitat/distribution descriptors (Cliff-dwelling, Disjunct, Foothills, etc.) — these describe a pattern, not a checkable location, so they stay taxon-level. For an actual place like Ash Meadows, use the Named Place filter above instead — it checks real coordinates, this doesn't.
+    </div>
+  </div>
+
+  <!-- Genus filter -->
+  <div class="panel-section">
+    <h2>Genus</h2>
+    <select id="genus-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+      <option value="">All genera</option>
+    </select>
+  </div>
+
+  <!-- iNat quality grade -->
+  <div class="panel-section">
+    <h2>iNat Quality Grade</h2>
+    <div class="chip-group" id="grade-chips">
+      <button class="chip on" data-grade="research">Research Grade</button>
+      <button class="chip on" data-grade="needs_id">Needs ID</button>
+      <button class="chip on" data-grade="casual">Casual</button>
+    </div>
+  </div>
+
+  <!-- iNat GPS accuracy -->
+  <div class="panel-section">
+    <h2>iNat GPS Accuracy</h2>
+    <select id="accuracy-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:6px;">
+      <option value="0">Show all (no accuracy filter)</option>
+      <option value="30">≤30 m only (high precision)</option>
+      <option value="100">≤100 m only</option>
+      <option value="250">≤250 m only</option>
+      <option value="1000">≤1 km only</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);cursor:pointer;">
+      <input type="checkbox" id="exclude-obscured" style="cursor:pointer;"/>
+      Exclude obscured coordinates
+    </label>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+      Obscured points are randomized by iNat (often 10–20+ km) to protect sensitive species. The accuracy filter above now correctly reflects this — obscured points report their true (large) public uncertainty, not the device's original precision — but checking this box adds an explicit, unambiguous exclusion. Affects iNat points only; herbarium records are unaffected by either control.
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="panel-section">
+    <h2>Legend</h2>
+    <div class="legend-row"><span class="legend-sym" style="color:#c8a85a">●</span> Herbarium record</div>
+    <div class="legend-row"><span class="legend-sym" style="color:#6a9e7f">◆</span> iNat observation</div>
+    <div class="legend-row"><span class="legend-sym" style="font-size:11px;color:#e05a4a">●</span> ESA Listed</div>
+    <div class="legend-row"><span class="legend-sym" style="font-size:11px;color:#c86e2a">●</span> NV Protected</div>
+    <div style="margin:8px 0 4px;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;">Endemism (fill style)</div>
+    <div class="legend-row">
+      <span class="legend-sym"><svg width="14" height="14" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="#c8a85a"/></svg></span>
+      Endemic — solid fill
+    </div>
+    <div class="legend-row">
+      <span class="legend-sym"><svg width="14" height="14" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="#c8a85a" stroke-width="2.5"/></svg></span>
+      Near-endemic — open ring
+    </div>
+    <div class="legend-row">
+      <span class="legend-sym"><svg width="14" height="14" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="#c8a85a" stroke-width="2" stroke-dasharray="3,2"/></svg></span>
+      Disjunct — dashed ring
+    </div>
+    <div style="margin-top:6px;font-size:11px;color:var(--text-dim)">
+      Colors cycle by species when no single taxon is selected.
+    </div>
+  </div>
+
+  <!-- Offline base map — explicitly opt-in, never runs automatically. -->
+  <div class="panel-section">
+    <h2>Offline Base Map</h2>
+    <p class="panel-note">Caches a statewide low-detail USGS Topo basemap (~140&ndash;235MB, one-time) so the map background still shows with no signal. Nothing downloads unless you click below &mdash; do this once, on Wi-Fi.</p>
+    <button id="download-offline-map-btn">⬇ Download Offline Base Map</button>
+  </div>
+
+  <!-- Area search — queries GBIF/iNat for ANY plant records in a
+       user-drawn area, regardless of taxon. -->
+  <div class="panel-section">
+    <h2>Area Herbarium/iNat Search</h2>
+    <p class="panel-note">Draw a polygon or box to search for <em>any</em> plant records there — not just endemics. Optionally filter by genus or full species name below (e.g. "Artemisia" or "Astragalus phoenix"); leave blank for all plants. Requires internet. Large areas or large result sets will prompt a warning.</p>
+    <p class="panel-note">Note: since this queries GBIF/iNat directly, results may include names that aren't compatible with Tiehm &amp; Nachlinger's checklist (synonyms, excluded taxa). We hope to flag these automatically in a future update.</p>
+    <input type="text" id="area-search-taxon" placeholder="Taxon filter (optional)" autocomplete="off" style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text-bright);border-radius:4px;font-size:12px;margin-bottom:6px;box-sizing:border-box;"/>
+    <div style="display:flex;gap:5px;margin-bottom:6px;">
+      <button class="area-src-btn on" data-src="herbarium">Herbarium</button>
+      <button class="area-src-btn on" data-src="inat">iNaturalist</button>
+    </div>
+    <div style="display:flex;gap:5px;margin-bottom:6px;">
+      <button id="area-search-draw-btn">⬡ Polygon</button>
+      <button id="area-search-box-btn">▭ Box</button>
+    </div>
+    <button id="close-search-poly-btn" style="display:none;margin-top:0;">✓ Close Polygon (or Enter)</button>
+    <div id="area-search-status"></div>
+    <div id="area-search-export-group" style="display:none;margin-top:6px;gap:4px;flex-direction:column;">
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:2px;">Export search results:</div>
+      <div style="display:flex;gap:4px;">
+        <button class="area-search-export-btn" id="area-search-export-geojson">GeoJSON</button>
+        <button class="area-search-export-btn" id="area-search-export-gpx">GPX</button>
+        <button class="area-search-export-btn" id="area-search-export-csv">CSV</button>
+      </div>
+    </div>
+    <button id="area-search-clear-btn" style="display:none;margin-top:6px;">✕ Clear Search Results</button>
+  </div>
+
+  <!-- Export -->
+  <div class="panel-section">
+    <h2>Export</h2>
+    <button id="export-btn">⬇ GeoJSON (for Gaia GPS)</button>
+    <button id="export-gpx-btn" style="margin-top:6px;">⬇ GPX (alternative for Gaia)</button>
+    <button id="export-csv-btn" style="margin-top:6px;">⬇ CSV (coordinates + data)</button>
+    <button id="clear-btn">Clear all filters</button>
+  </div>
+
+  <!-- Attribution / contact -->
+  <div class="panel-section" style="text-align:center;font-size:10px;color:var(--text-dim);border-bottom:none;">
+    <div id="last-refresh-note" style="margin-bottom:8px;">Data last refreshed: —</div>
+    Created by Lee Fram. For suggestions or bug fixes, email:<br/>
+    <a href="mailto:nv_endemics.ambiguous374@passmail.net" style="color:var(--accent2);">nv_endemics.ambiguous374@passmail.net</a>
+    <br/>
+    Open source — <a href="https://github.com/FramL/nv-endemics" target="_blank" rel="noopener" style="color:var(--accent2);">view on GitHub</a>
+  </div>
+
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+
+<script>
+// ============================================================
+// VERSION
+// ============================================================
+// Bump this string whenever index.html changes, so a glance at the
+// browser console confirms which version actually loaded.
+const SCRIPT_VERSION = "2026-07-19-v48-any-rank-filter-copy-fixes";
+console.log(`index.html version: ${SCRIPT_VERSION}`);
+
+// ============================================================
+// OFFLINE / PWA
+// ============================================================
+// Three parts:
+//  1. Register the service worker (handles all the caching strategies —
+//     see service-worker.js).
+//  2. Ask the browser not to evict our cached data under storage pressure.
+//  3. Bulk-precache a statewide USGS Topo basemap at low/medium zoom
+//     (z6–12, ~140–235MB) the first time the page loads with a network
+//     connection, so basic geographic context is available everywhere in
+//     Nevada even with zero signal. This runs once — a flag in
+//     localStorage prevents repeating it on every visit. High-detail,
+//     per-trip map work is intentionally NOT handled here; that stays
+//     with the GeoJSON export → Gaia GPS workflow.
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("service-worker.js").catch((e) => {
+      console.warn("Service worker registration failed:", e);
+    });
+  });
+}
+
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().then((granted) => {
+    console.log(granted ? "Persistent storage granted." : "Persistent storage not granted (cache may be evicted under storage pressure).");
+  });
+}
+
+// Nevada bounding box — generous overestimate is fine; extra tiles outside
+// the state border just get cached too, no harm done.
+const NV_BBOX = { latMin: 35.0, latMax: 42.0, lonMin: -120.0, lonMax: -114.0 };
+const TOPO_PRECACHE_MIN_ZOOM = 6;
+const TOPO_PRECACHE_MAX_ZOOM = 12;
+// Bump this if you ever change the bbox or zoom range above, so returning
+// visitors re-run the precache instead of assuming the old run covers it.
+const TOPO_CACHE_VERSION = "v1";
+const TOPO_CACHE_NAME = `nv-endemics-topo-tiles-${TOPO_CACHE_VERSION}`; // must match service-worker.js
+const TOPO_TILE_URL = (z, x, y) =>
+  `https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/${z}/${y}/${x}`;
+
+function latLonToTile(lat, lon, z) {
+  const latRad = (lat * Math.PI) / 180;
+  const n = Math.pow(2, z);
+  const x = Math.floor(((lon + 180) / 360) * n);
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n
+  );
+  return { x, y };
+}
+
+function buildTopoTileList() {
+  const tiles = [];
+  for (let z = TOPO_PRECACHE_MIN_ZOOM; z <= TOPO_PRECACHE_MAX_ZOOM; z++) {
+    const nw = latLonToTile(NV_BBOX.latMax, NV_BBOX.lonMin, z);
+    const se = latLonToTile(NV_BBOX.latMin, NV_BBOX.lonMax, z);
+    for (let x = nw.x; x <= se.x; x++) {
+      for (let y = nw.y; y <= se.y; y++) tiles.push({ z, x, y });
+    }
+  }
+  return tiles;
+}
+
+function setOfflineCacheStatus(text) {
+  const el = document.getElementById("offline-cache-status");
+  if (!el) return;
+  if (!text) {
+    el.classList.remove("visible");
+    el.textContent = "";
+  } else {
+    el.classList.add("visible");
+    el.textContent = text;
+  }
+}
+
+async function precacheTopoTiles() {
+  const btn = document.getElementById("download-offline-map-btn");
+
+  if (!("caches" in window)) {
+    alert("Your browser doesn't support offline caching.");
+    return;
+  }
+  if (!navigator.onLine) {
+    alert("You're offline right now — connect to Wi-Fi or data and try again.");
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = "Caching…"; }
+
+  const tiles = buildTopoTileList();
+  const cache = await caches.open(TOPO_CACHE_NAME);
+  const CONCURRENCY = 6;
+  let nextIdx = 0;
+  let done = 0;
+  let failures = 0;
+
+  setOfflineCacheStatus(`Caching offline base map: 0 / ${tiles.length}`);
+
+  async function worker() {
+    while (nextIdx < tiles.length) {
+      const i = nextIdx++;
+      const { z, x, y } = tiles[i];
+      const url = TOPO_TILE_URL(z, x, y);
+      try {
+        const existing = await cache.match(url);
+        if (!existing) {
+          const resp = await fetch(url);
+          if (resp.ok) await cache.put(url, resp);
+          else failures++;
+        }
+      } catch (e) {
+        failures++; // likely lost connection mid-run; safe to retry next session
+      }
+      done++;
+      if (btn) btn.textContent = `Caching… ${done} / ${tiles.length}`;
+      if (done % 25 === 0 || done === tiles.length) {
+        setOfflineCacheStatus(`Caching offline base map: ${done} / ${tiles.length}`);
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+
+  if (failures === 0) {
+    localStorage.setItem("nvTopoCacheDone", TOPO_CACHE_VERSION);
+    setOfflineCacheStatus("Offline base map ready.");
+    if (btn) { btn.disabled = false; btn.textContent = "✓ Offline Base Map Ready (click to re-check)"; }
+  } else {
+    setOfflineCacheStatus(`Offline base map: ${tiles.length - failures} / ${tiles.length} cached (connection dropped — try again when back online).`);
+    if (btn) { btn.disabled = false; btn.textContent = `⬇ Download Offline Base Map (${tiles.length - failures}/${tiles.length} done)`; }
+  }
+  setTimeout(() => setOfflineCacheStatus(null), 4000);
+}
+
+// ============================================================
+// CONFIG & STATE
+// ============================================================
+
+const CONFIG = {
+  // Change this path if you move the GeoJSON file
+  occurrencesUrl: "data/occurrences.geojson",
+  taxaMetaUrl:    "data/taxa_metadata.json",
+  countiesUrl:    "data/nevada_counties.geojson",
+  regionsUrl:     "data/nevada_regions_sections.geojson",
+  placesUrl:      "data/nevada_named_places.geojson",
+  lastRefreshUrl: "data/last_refresh.json",
+
+  // Demo data is now auto-detected at load time (see init()) based on
+  // whether data/occurrences.geojson actually loads and has features.
+  // No manual toggle needed.
+};
+
+// ── Species color palette (cycles) ──
+const SPECIES_COLORS = [
+  "#c8a85a","#6a9e7f","#7faed4","#c87a6a","#9e8abf",
+  "#d4b86a","#5aa89e","#bf9a5a","#7ab48a","#c8785a",
+  "#5a8abf","#a89e5a","#8a7abf","#6abeaa","#bf6a8a",
+  "#aaba7a","#7aaabf","#c89a6a","#5a9ebf","#bfa85a",
+];
+
+let allFeatures = [];
+let taxaMetadata = {};
+let speciesColorMap = {};
+let colorIndex = 0;
+
+// Filter state
+const state = {
+  selectedTaxon: null,
+  endemism: new Set(["endemic","near-endemic","disjunct"]),  // "listed" (non-endemic) starts off -- Simple mode default
+  sources: new Set(["herbarium","inat"]),
+  statusFilters: new Set(["esa","nv","unlisted"]),
+  grades: new Set(["research","needs_id","casual"]),
+  genus: "",
+  region: "",
+  section: "",
+  county: "",
+  namedPlace: "",
+  blmStatus: "",
+  usfsStatus: "",
+  grank: "",
+  maxAccuracyM: 0,         // 0 = no filter; otherwise max allowed positional_accuracy_m
+  excludeObscured: false,
+  themes: new Set(),  // populated from data
+  areaPolygon: null,  // array of [lat,lon] pairs | null — set by the draw-polygon area filter
+};
+
+// Leaflet objects
+let map, clusterGroup;
+let markersByFeature = new Map();
+let countyBoundaries = null;     // GeoJSON FeatureCollection, fetched once at startup
+let countyBoundaryLayer = null;  // the currently-drawn highlight layer, if any
+let regionBoundaries = null;     // GeoJSON FeatureCollection, fetched once at startup
+let regionBoundaryLayer = null;  // the currently-drawn highlight layer(s), if any
+let placeBoundaries = null;      // GeoJSON FeatureCollection, fetched once at startup
+let placeBoundaryLayer = null;   // the currently-drawn highlight layer, if any
+
+// ============================================================
+// DEMO DATA — synthetic points when real GeoJSON not available
+// ============================================================
+
+function generateDemoData() {
+  const nv_center = [39.5, -116.5];
+  const taxa_sample = [
+    {taxon:"Lepidium tiehmii", genus:"Lepidium", endemism_category:"endemic", esa_status:"Endangered", nv_state_status:"", book_thematic_category:"Edaphic"},
+    {taxon:"Astragalus lentiginosus var. latus", genus:"Astragalus", endemism_category:"endemic", esa_status:"", nv_state_status:"Protected", book_thematic_category:""},
+    {taxon:"Eriogonum tiehmii", genus:"Eriogonum", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:""},
+    {taxon:"Primula nevadensis", genus:"Primula", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:"Groundwater Springs"},
+    {taxon:"Penstemon tiehmii", genus:"Penstemon", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:""},
+    {taxon:"Astragalus tiehmii", genus:"Astragalus", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:""},
+    {taxon:"Draba arida", genus:"Draba", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:"Alpine"},
+    {taxon:"Ivesia pityocharis", genus:"Ivesia", endemism_category:"endemic", esa_status:"", nv_state_status:"", book_thematic_category:""},
+    {taxon:"Castilleja salsuginosa", genus:"Castilleja", endemism_category:"endemic", esa_status:"", nv_state_status:"Protected", book_thematic_category:"Groundwater Springs"},
+    {taxon:"Sclerocactus nyensis", genus:"Sclerocactus", endemism_category:"endemic", esa_status:"Threatened", nv_state_status:"", book_thematic_category:""},
+  ];
+
+  // populate taxaMetadata from demo
+  taxa_sample.forEach(t => {
+    t.physiographic_region = t.physiographic_region || "Central Great Basin";
+    t.physiographic_section = t.physiographic_section || "Tonopah Section";
+    taxaMetadata[t.taxon] = t;
+  });
+
+  const features = [];
+  taxa_sample.forEach(meta => {
+    const n_herb = 5 + Math.floor(Math.random() * 20);
+    const n_inat = Math.floor(Math.random() * 10);
+    for (let i = 0; i < n_herb; i++) {
+      features.push({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [
+            nv_center[1] + (Math.random()-0.5)*6,
+            nv_center[0] + (Math.random()-0.5)*4
+          ]
+        },
+        properties: {
+          source: "herbarium",
+          taxon: meta.taxon,
+          genus: meta.genus,
+          endemism_category: meta.endemism_category,
+          esa_status: meta.esa_status,
+          nv_state_status: meta.nv_state_status,
+          book_thematic_category: meta.book_thematic_category,
+          physiographic_region: meta.physiographic_region,
+          physiographic_section: meta.physiographic_section,
+          collector: ["A. Tiehm","J. Nachlinger","A.H. Holmgren","N.H. Holmgren"][Math.floor(Math.random()*4)],
+          institution: ["UNLV","UNR","NY","UC"][Math.floor(Math.random()*4)],
+          locality: `Demo locality ${i+1}`,
+          county: ["Nye","Elko","Lander","Mineral","White Pine"][Math.floor(Math.random()*5)],
+          url: "",
+        }
+      });
+    }
+    for (let i = 0; i < n_inat; i++) {
+      features.push({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [
+            nv_center[1] + (Math.random()-0.5)*6,
+            nv_center[0] + (Math.random()-0.5)*4
+          ]
+        },
+        properties: {
+          source: "inat",
+          taxon: meta.taxon,
+          genus: meta.genus,
+          endemism_category: meta.endemism_category,
+          esa_status: meta.esa_status,
+          nv_state_status: meta.nv_state_status,
+          book_thematic_category: meta.book_thematic_category,
+          physiographic_region: meta.physiographic_region,
+          physiographic_section: meta.physiographic_section,
+          observed_on: `${2015+Math.floor(Math.random()*10)}-0${1+Math.floor(Math.random()*8)}-${10+Math.floor(Math.random()*20)}`,
+          observer: ["stevef","nv_botanist","desert_plant_nerd","great_basin_flora"][Math.floor(Math.random()*4)],
+          quality_grade: ["research","research","needs_id","casual"][Math.floor(Math.random()*4)],
+          place_guess: `Nevada`,
+          url: "",
+        }
+      });
+    }
+  });
+  return features;
+}
+
+// ============================================================
+// SPECIES COLOR
+// ============================================================
+
+function getSpeciesColor(taxon) {
+  if (!speciesColorMap[taxon]) {
+    speciesColorMap[taxon] = SPECIES_COLORS[colorIndex % SPECIES_COLORS.length];
+    colorIndex++;
+  }
+  return speciesColorMap[taxon];
+}
+
+// ============================================================
+// MARKER CREATION
+// ============================================================
+
+function markerColor(props) {
+  if (props.esa_status && props.esa_status.trim()) return "#e05a4a";
+  if (props.nv_state_status && props.nv_state_status.trim()) return "#c86e2a";
+  return getSpeciesColor(props.taxon);
+}
+
+function createMarkerIcon(props) {
+  const color = markerColor(props);
+  const isHerbarium = props.source === "herbarium";
+  const endemism = props.endemism_category || "endemic";
+
+  let svgInner;
+  if (isHerbarium) {
+    // Circle — solid for endemic, ring for near-endemic, dotted ring for disjunct
+    if (endemism === "endemic") {
+      svgInner = `<circle cx="9" cy="9" r="6" fill="${color}" stroke="#1a1c1e" stroke-width="1.5"/>`;
+    } else if (endemism === "near-endemic") {
+      svgInner = `<circle cx="9" cy="9" r="6" fill="none" stroke="${color}" stroke-width="2.5"/>`;
+    } else {
+      svgInner = `<circle cx="9" cy="9" r="6" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="3,2"/>`;
+    }
+  } else {
+    // Diamond (rotated square) — same fill/ring logic
+    const pts = "9,2 16,9 9,16 2,9";
+    if (endemism === "endemic") {
+      svgInner = `<polygon points="${pts}" fill="${color}" stroke="#1a1c1e" stroke-width="1.5"/>`;
+    } else if (endemism === "near-endemic") {
+      svgInner = `<polygon points="${pts}" fill="none" stroke="${color}" stroke-width="2.5"/>`;
+    } else {
+      svgInner = `<polygon points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="3,2"/>`;
+    }
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">${svgInner}</svg>`;
+  return L.divIcon({
+    html: svg,
+    className: "",
+    iconSize: [18,18],
+    iconAnchor: [9,9],
+    popupAnchor: [0,-10],
+  });
+}
+
+// ============================================================
+// POPUP CONTENT
+// ============================================================
+
+// ============================================================
+// COPY COORDINATES TO CLIPBOARD
+// ============================================================
+
+function copyCoords(elementId, btn) {
+  const text = document.getElementById(elementId).textContent;
+  // navigator.clipboard requires a secure context (https or localhost);
+  // fall back to the older execCommand approach if unavailable.
+  const showCopied = () => {
+    const original = btn.textContent;
+    btn.textContent = "✓ Copied";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.classList.remove("copied");
+    }, 1500);
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(() => {
+      fallbackCopy(text, showCopied);
+    });
+  } else {
+    fallbackCopy(text, showCopied);
+  }
+}
+
+function fallbackCopy(text, onSuccess) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+    onSuccess();
+  } catch(e) {
+    console.warn("Copy failed:", e);
+  }
+  document.body.removeChild(ta);
+}
+
+function buildPopup(props, coords) {
+  const isHerb = props.source === "herbarium";
+  const esa  = props.esa_status  ? `<span class="badge badge-esa">${props.esa_status}</span> ` : "";
+  const nvs  = props.nv_state_status ? `<span class="badge badge-nv">${props.nv_state_status}</span> ` : "";
+  const ecat = props.endemism_category || "endemic";
+  const ecatBadge = `<span class="badge badge-${ecat}">${ecat}</span>`;
+
+  // coords is [lon, lat] per GeoJSON convention; display as lat, lon (standard for
+  // copy-pasting into Gaia GPS, Google Maps, etc.) with 5 decimal places (~1m precision)
+  const lon = coords[0];
+  const lat = coords[1];
+  const coordStr = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  // Unique id so multiple open popups don't collide on the copy button
+  const coordId = `coord_${Math.random().toString(36).slice(2,9)}`;
+
+  let rows = "";
+  if (isHerb) {
+    rows = `
+      <div class="popup-row"><span class="lbl">Date:</span> ${props.collection_date || "—"}</div>
+      <div class="popup-row"><span class="lbl">Collector:</span> ${props.collector || "—"}</div>
+      <div class="popup-row"><span class="lbl">Institution:</span> ${props.institution || "—"}</div>
+      <div class="popup-row"><span class="lbl">County:</span> ${props.county || "—"}</div>
+      <div class="popup-row"><span class="lbl">Locality:</span> ${props.locality || "—"}</div>
+    `;
+  } else {
+    const acc = props.positional_accuracy_m;
+    const accText = (acc === "" || acc === null || acc === undefined)
+      ? "not reported"
+      : `±${Math.round(acc)} m`;
+    const accColor = (acc === "" || acc === null || acc === undefined) ? "var(--text-dim)"
+      : acc <= 30 ? "var(--accent2)"
+      : acc <= 250 ? "var(--accent)"
+      : "var(--esa-color)";
+    const obscuredWarning = props.coordinates_obscured
+      ? `<div class="popup-row" style="color:var(--esa-color);font-weight:600;margin-top:4px;">
+           ⚠ Coordinates obscured — iNat randomizes this point (often by several km) to protect a sensitive species. Do not use for relocating this population.
+         </div>`
+      : "";
+    rows = `
+      <div class="popup-row"><span class="lbl">Date:</span> ${props.observed_on || "—"}</div>
+      <div class="popup-row"><span class="lbl">Observer:</span> ${props.observer || "—"}</div>
+      <div class="popup-row"><span class="lbl">Quality:</span> ${props.quality_grade || "—"}</div>
+      <div class="popup-row"><span class="lbl">County:</span> ${props.county || "—"}</div>
+      <div class="popup-row"><span class="lbl">Place:</span> ${props.place_guess || "—"}</div>
+      <div class="popup-row"><span class="lbl">GPS accuracy:</span> <span style="color:${accColor};font-weight:600;">${accText}</span></div>
+      ${obscuredWarning}
+    `;
+  }
+
+  const sourceLabel = isHerb ? "● Herbarium" : "◆ iNaturalist";
+  const link = props.url ? `<a class="popup-link" href="${props.url}" target="_blank">View record ↗</a>` : "";
+
+  return `
+    <div class="popup-name">${props.taxon}</div>
+    <div style="margin-bottom:6px;">${ecatBadge} ${esa}${nvs}</div>
+    <div class="popup-row" style="color:var(--text-dim);margin-bottom:4px;">${sourceLabel}</div>
+    <div class="popup-coords">
+      <span class="coord-val" id="${coordId}">${coordStr}</span>
+      <button class="copy-coords-btn" onclick="copyCoords('${coordId}', this)">Copy</button>
+    </div>
+    ${rows}
+    ${link}
+  `;
+}
+
+// ============================================================
+// FILTER LOGIC
+// ============================================================
+
+function featureVisible(f) {
+  const p = f.properties;
+  if (state.selectedTaxon && p.taxon !== state.selectedTaxon) return false;
+  if (!state.endemism.has(p.endemism_category || "endemic")) return false;
+  if (!state.sources.has(p.source)) return false;
+  if (state.genus && p.genus !== state.genus) return false;
+  // Region/section are now computed per-point via point-in-polygon against
+  // hand-digitized boundaries traced from the book's regions map (Fig. 1),
+  // see add_regions.py. This replaced the old taxon-level tagging, under
+  // which every occurrence of a taxon inherited one blanket region/section
+  // from the book's intro text regardless of that point's real coordinates
+  // (confirmed: that old scheme disagreed with real point locations for
+  // about 40% of records). Points with region/section === null (unresolved,
+  // likely bad source geocoding — the same ~10 records add_county.py also
+  // couldn't place) are excluded whenever a specific region/section is
+  // selected, same handling as the county filter below.
+  if (state.region && p.physiographic_region !== state.region) return false;
+  if (state.section && p.physiographic_section !== state.section) return false;
+
+  // County filter — unlike region/section above, this IS computed per-point
+  // (point-in-polygon against real county boundaries, see add_county.py).
+  // Points with county === null (unresolved, likely bad source geocoding)
+  // are excluded whenever a specific county is selected, since they can't
+  // be confidently placed in any county.
+  if (state.county && p.county !== state.county) return false;
+
+  // Named place — same per-point pattern as county/region, but only tracks
+  // a small, growing set of specific localities (currently just Ash Meadows
+  // NWR), not the whole state. named_place === null is the normal case for
+  // most points (not near any tracked place), not an error.
+  if (state.namedPlace && p.named_place !== state.namedPlace) return false;
+
+  // BLM/USFS status -- taxon-level, same as ESA/NV state status above.
+  if (state.blmStatus && p.blm_status !== state.blmStatus) return false;
+  if (state.usfsStatus && p.usfs_status !== state.usfsStatus) return false;
+  if (state.grank === "ANY") {
+    if (!p.natureserve_grank) return false;
+  } else if (state.grank && p.natureserve_grank !== state.grank) {
+    return false;
+  }
+
+  // Point-level area filter (the draw-polygon tool) — checks whether this
+  // specific occurrence falls inside the user-drawn polygon.
+  if (state.areaPolygon && !pointInPolygon(
+    f.geometry.coordinates[1], f.geometry.coordinates[0], state.areaPolygon
+  )) {
+    return false;
+  }
+
+  // status
+  const hasEsa = p.esa_status && p.esa_status.trim();
+  const hasNv  = p.nv_state_status && p.nv_state_status.trim();
+  if (hasEsa && !state.statusFilters.has("esa")) return false;
+  if (!hasEsa && hasNv && !state.statusFilters.has("nv")) return false;
+  if (!hasEsa && !hasNv && !state.statusFilters.has("unlisted")) return false;
+
+  // iNat grade filter only applies to iNat records
+  if (p.source === "inat" && !state.grades.has(p.quality_grade || "casual")) return false;
+
+  // iNat GPS accuracy / obscured-coordinates filters — herbarium records are
+  // unaffected since these fields don't apply to specimen data.
+  if (p.source === "inat") {
+    if (state.excludeObscured && p.coordinates_obscured) return false;
+    if (state.maxAccuracyM > 0) {
+      const acc = p.positional_accuracy_m;
+      // Records with no reported accuracy are excluded once a threshold is set,
+      // since we can't confirm they meet it — safer default than assuming they pass.
+      if (acc === "" || acc === null || acc === undefined) return false;
+      if (Number(acc) > state.maxAccuracyM) return false;
+    }
+  }
+
+  // book theme filter
+  const theme = p.book_thematic_category || "";
+  if (!state.themes.has(theme)) return false;
+
+  return true;
+}
+
+// ============================================================
+// RENDER MARKERS
+// ============================================================
+
+// ============================================================
+// POINT-IN-POLYGON UTILITY
+// ============================================================
+// Ray-casting algorithm. polygon is array of [lat, lon] pairs.
+function pointInPolygon(lat, lon, polygon) {
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [yi, xi] = polygon[i];
+    const [yj, xj] = polygon[j];
+    if ((yi > lat) !== (yj > lat) &&
+        lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// ============================================================
+// AREA FILTER (draw-polygon)
+// ============================================================
+// Click-to-add-vertex polygon drawing (same pattern as CalFlora, CalTopo).
+// Double-click closes the polygon and filters the main dataset to only
+// points inside it. Supports mouse and touch.
+
+let drawPolyVertices = [];
+let drawPolyLine = null;
+let drawPolyMarkers = [];
+let drawPolyFill = null;
+let drawingPoly = false;
+
+function getLatLngFromEvent(e) {
+  if (e.touches && e.touches.length) return map.mouseEventToLatLng(e.touches[0]);
+  if (e.changedTouches && e.changedTouches.length) return map.mouseEventToLatLng(e.changedTouches[0]);
+  return map.mouseEventToLatLng(e);
+}
+
+function setAreaStatus(text) {
+  const el = document.getElementById("area-status");
+  const textEl = document.getElementById("area-status-text");
+  if (!el || !textEl) return;
+  textEl.textContent = text || "";
+  el.classList.toggle("visible", !!text);
+}
+
+function setDrawButtonActive(active) {
+  const btn = document.getElementById("draw-area-btn");
+  if (!btn) return;
+  btn.classList.toggle("active", active);
+  btn.textContent = active ? "⬡ Drawing… (click to cancel)" : "⬡ Polygon";
+}
+
+// Box drawing (drag to create rectangle — simpler alternative to polygon)
+let drawingBox = false;
+let drawBoxStart = null;
+let drawBoxPreview = null;
+let drawBoxFill = null;
+
+function startBoxDraw() {
+  if (drawingPoly) cancelAreaDraw();
+  if (areaSearchDrawing) cancelAreaSearch();
+  if (areaSearchBoxDrawing) cancelAreaSearchBox();
+  drawingBox = true;
+  const btn = document.getElementById("draw-box-btn");
+  btn.classList.add("active");
+  btn.textContent = "▭ Drag on map… (click to cancel)";
+  if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
+  map.dragging.disable();
+  map.getContainer().style.cursor = "crosshair";
+  map.getContainer().addEventListener("mousedown", onBoxStart);
+  map.getContainer().addEventListener("touchstart", onBoxStart, { passive: false });
+}
+
+function cancelBoxDraw() {
+  drawingBox = false;
+  const btn = document.getElementById("draw-box-btn");
+  btn.classList.remove("active");
+  btn.textContent = "▭ Box";
+  map.dragging.enable();
+  map.getContainer().style.cursor = "";
+  map.getContainer().removeEventListener("mousedown", onBoxStart);
+  map.getContainer().removeEventListener("touchstart", onBoxStart);
+  map.getContainer().removeEventListener("mousemove", onBoxMove);
+  map.getContainer().removeEventListener("touchmove", onBoxMove);
+  map.getContainer().removeEventListener("mouseup", onBoxEnd);
+  map.getContainer().removeEventListener("touchend", onBoxEnd);
+  if (drawBoxPreview) { map.removeLayer(drawBoxPreview); drawBoxPreview = null; }
+  drawBoxStart = null;
+}
+
+function onBoxStart(e) {
+  if (e.touches && e.touches.length > 1) return;
+  e.preventDefault();
+  drawBoxStart = getLatLngFromEvent(e);
+  drawBoxPreview = L.rectangle([drawBoxStart, drawBoxStart], {
+    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.12, dashArray: "4,3"
+  }).addTo(map);
+  map.getContainer().addEventListener("mousemove", onBoxMove);
+  map.getContainer().addEventListener("touchmove", onBoxMove, { passive: false });
+  map.getContainer().addEventListener("mouseup", onBoxEnd);
+  map.getContainer().addEventListener("touchend", onBoxEnd);
+}
+
+function onBoxMove(e) {
+  if (!drawBoxPreview || !drawBoxStart) return;
+  e.preventDefault();
+  drawBoxPreview.setBounds(L.latLngBounds(drawBoxStart, getLatLngFromEvent(e)));
+}
+
+function onBoxEnd(e) {
+  if (!drawBoxStart) return;
+  const bounds = L.latLngBounds(drawBoxStart, getLatLngFromEvent(e));
+
+  map.getContainer().removeEventListener("mousedown", onBoxStart);
+  map.getContainer().removeEventListener("touchstart", onBoxStart);
+  map.getContainer().removeEventListener("mousemove", onBoxMove);
+  map.getContainer().removeEventListener("touchmove", onBoxMove);
+  map.getContainer().removeEventListener("mouseup", onBoxEnd);
+  map.getContainer().removeEventListener("touchend", onBoxEnd);
+  map.dragging.enable();
+  map.getContainer().style.cursor = "";
+  drawingBox = false;
+  const btn = document.getElementById("draw-box-btn");
+  btn.classList.remove("active");
+  btn.textContent = "▭ Box";
+  if (drawBoxPreview) { map.removeLayer(drawBoxPreview); drawBoxPreview = null; }
+  drawBoxStart = null;
+
+  const trivial = bounds.getNorth() === bounds.getSouth() || bounds.getEast() === bounds.getWest();
+  if (trivial) return;
+
+  // Convert bounds to polygon vertices for the shared areaPolygon state
+  const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+  const verts = [
+    [sw.lat, sw.lng], [ne.lat, sw.lng], [ne.lat, ne.lng], [sw.lat, ne.lng]
+  ];
+
+  if (drawBoxFill) map.removeLayer(drawBoxFill);
+  // Reuse drawPolyFill slot so clearAreaFilter removes it
+  if (drawPolyFill) map.removeLayer(drawPolyFill);
+  drawPolyFill = L.rectangle(bounds, {
+    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.08
+  }).addTo(map);
+  state.areaPolygon = verts;
+  setAreaStatus(`Box filter active`);
+  renderMarkers();
+}
+
+function startAreaDraw() {
+  if (areaSearchDrawing) cancelAreaSearch();
+  if (drawingBox) cancelBoxDraw();
+  if (areaSearchBoxDrawing) cancelAreaSearchBox();
+  drawingPoly = true;
+  drawPolyVertices = [];
+  setDrawButtonActive(true);
+  document.getElementById("close-poly-btn").style.display = "block";
+  if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
+  map.getContainer().style.cursor = "crosshair";
+  map.on("click", onPolyClick);
+  document.addEventListener("keydown", onPolyKeyDown);
+}
+
+function cancelAreaDraw() {
+  drawingPoly = false;
+  setDrawButtonActive(false);
+  document.getElementById("close-poly-btn").style.display = "none";
+  map.getContainer().style.cursor = "";
+  map.off("click", onPolyClick);
+  document.removeEventListener("keydown", onPolyKeyDown);
+  clearPolyPreview();
+  drawPolyVertices = [];
+}
+
+function clearPolyPreview() {
+  if (drawPolyLine) { map.removeLayer(drawPolyLine); drawPolyLine = null; }
+  drawPolyMarkers.forEach(m => map.removeLayer(m));
+  drawPolyMarkers = [];
+}
+
+function onPolyKeyDown(e) {
+  if (e.key === "Enter") { e.preventDefault(); tryClosePolygon(); }
+  if (e.key === "Escape") { cancelAreaDraw(); }
+}
+
+function onPolyClick(e) {
+  const ll = e.latlng;
+  drawPolyVertices.push([ll.lat, ll.lng]);
+  const dot = L.circleMarker(ll, {
+    radius: 4, color: "#c8a85a", weight: 1.5, fillColor: "#c8a85a", fillOpacity: 1
+  }).addTo(map);
+  drawPolyMarkers.push(dot);
+  if (drawPolyLine) map.removeLayer(drawPolyLine);
+  drawPolyLine = L.polyline(drawPolyVertices, {
+    color: "#c8a85a", weight: 2, dashArray: "5,4"
+  }).addTo(map);
+}
+
+function tryClosePolygon() {
+  if (drawPolyVertices.length < 3) {
+    alert("Need at least 3 points to close a polygon.");
+    return;
+  }
+  closePolygon();
+}
+
+function closePolygon() {
+  map.off("click", onPolyClick);
+  document.removeEventListener("keydown", onPolyKeyDown);
+  map.getContainer().style.cursor = "";
+  drawingPoly = false;
+  setDrawButtonActive(false);
+  document.getElementById("close-poly-btn").style.display = "none";
+  clearPolyPreview();
+  if (drawPolyFill) map.removeLayer(drawPolyFill);
+  drawPolyFill = L.polygon(drawPolyVertices, {
+    color: "#c8a85a", weight: 2, fillColor: "#c8a85a", fillOpacity: 0.08
+  }).addTo(map);
+  state.areaPolygon = [...drawPolyVertices];
+  setAreaStatus(`Polygon filter active (${drawPolyVertices.length} vertices)`);
+  renderMarkers();
+}
+
+function clearAreaFilter() {
+  if (drawingPoly) cancelAreaDraw();
+  if (drawingBox) cancelBoxDraw();
+  state.areaPolygon = null;
+  if (drawPolyFill) { map.removeLayer(drawPolyFill); drawPolyFill = null; }
+  clearPolyPreview();
+  drawPolyVertices = [];
+  setAreaStatus(null);
+  renderMarkers();
+}
+
+// ============================================================
+// AREA HERBARIUM SEARCH
+// ============================================================
+// Queries GBIF for ANY plant herbarium specimens within a user-drawn
+// bounding box — separate from the main occurrence dataset (taxa.csv /
+// occurrences.geojson). Results shown on a temporary overlay layer;
+// cleared when the user clicks "Clear Search Results".
+//
+// Guardrail: box must be ≤50km in both lat and lon span. Larger areas
+// would involve tens of thousands of GBIF API calls, put load on their
+// servers, and take too long to be useful. The user is warned and asked
+// to confirm if they try to exceed this.
+//
+// GBIF aggregates SEINet/Symbiota herbarium records among many other
+// sources — this reaches the same underlying data SEINet holds.
+
+let areaSearchDrawing = false;
+let areaSearchPolyVertices = [];
+let areaSearchPolyLine = null;
+let areaSearchPolyMarkers = [];
+let areaSearchResultLayer = null;
+let areaSearchClusterGroup = null; // separate cluster group for area search results
+let areaSearchResultFeatures = []; // kept for export after search completes
+let areaSearchDrawLayer = null;
+const areaSearchSources = new Set(["herbarium", "inat"]);
+
+const AREA_SEARCH_MAX_KM = 50;
+
+// Polygon-based GBIF bounding box is the enclosing bbox of the polygon.
+// Point-in-polygon filtering happens after results are returned.
+function polyBbox(verts) {
+  const lats = verts.map(v => v[0]), lons = verts.map(v => v[1]);
+  return {
+    latMin: Math.min(...lats), latMax: Math.max(...lats),
+    lonMin: Math.min(...lons), lonMax: Math.max(...lons)
+  };
+}
+
+function polyAreaKm(verts) {
+  const bbox = polyBbox(verts);
+  return {
+    nsKm: kmBetween(bbox.latMin, bbox.lonMin, bbox.latMax, bbox.lonMin),
+    ewKm: kmBetween(bbox.latMin, bbox.lonMin, bbox.latMin, bbox.lonMax)
+  };
+}
+
+function kmBetween(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+    Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function setAreaSearchStatus(text, color) {
+  const el = document.getElementById("area-search-status");
+  el.textContent = text || "";
+  el.style.color = color || "var(--text-dim)";
+}
+
+function setAreaSearchDrawActive(active) {
+  const btn = document.getElementById("area-search-draw-btn");
+  btn.classList.toggle("active", active);
+  btn.textContent = active ? "Click to add vertices, dbl-click to close (click here to cancel)" : "⬡ Draw Polygon";
+}
+
+function clearAreaSearchPolyPreview() {
+  if (areaSearchPolyLine) { map.removeLayer(areaSearchPolyLine); areaSearchPolyLine = null; }
+  areaSearchPolyMarkers.forEach(m => map.removeLayer(m));
+  areaSearchPolyMarkers = [];
+}
+
+// Area search box drawing state
+let areaSearchBoxDrawing = false;
+let areaSearchBoxStart = null;
+let areaSearchBoxPreview = null;
+
+function setAreaSearchBoxActive(active) {
+  const btn = document.getElementById("area-search-box-btn");
+  if (!btn) return;
+  btn.classList.toggle("active", active);
+  btn.textContent = active ? "▭ Drag to draw… (click to cancel)" : "▭ Box";
+}
+
+function startAreaSearchBox() {
+  if (drawingPoly) cancelAreaDraw();
+  if (drawingBox) cancelBoxDraw();
+  if (areaSearchDrawing) cancelAreaSearch();
+  areaSearchBoxDrawing = true;
+  setAreaSearchBoxActive(true);
+  if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
+  map.dragging.disable();
+  map.getContainer().style.cursor = "crosshair";
+  map.getContainer().addEventListener("mousedown", onAreaSearchBoxStart);
+  map.getContainer().addEventListener("touchstart", onAreaSearchBoxStart, { passive: false });
+}
+
+function cancelAreaSearchBox() {
+  areaSearchBoxDrawing = false;
+  setAreaSearchBoxActive(false);
+  map.dragging.enable();
+  map.getContainer().style.cursor = "";
+  map.getContainer().removeEventListener("mousedown", onAreaSearchBoxStart);
+  map.getContainer().removeEventListener("touchstart", onAreaSearchBoxStart);
+  map.getContainer().removeEventListener("mousemove", onAreaSearchBoxMove);
+  map.getContainer().removeEventListener("touchmove", onAreaSearchBoxMove);
+  map.getContainer().removeEventListener("mouseup", onAreaSearchBoxEnd);
+  map.getContainer().removeEventListener("touchend", onAreaSearchBoxEnd);
+  if (areaSearchBoxPreview) { map.removeLayer(areaSearchBoxPreview); areaSearchBoxPreview = null; }
+  areaSearchBoxStart = null;
+}
+
+function onAreaSearchBoxStart(e) {
+  if (e.touches && e.touches.length > 1) return;
+  e.preventDefault();
+  areaSearchBoxStart = getLatLngFromEvent(e);
+  areaSearchBoxPreview = L.rectangle([areaSearchBoxStart, areaSearchBoxStart], {
+    color: "#a060c0", weight: 2, fillColor: "#a060c0", fillOpacity: 0.10, dashArray: "4,3"
+  }).addTo(map);
+  map.getContainer().addEventListener("mousemove", onAreaSearchBoxMove);
+  map.getContainer().addEventListener("touchmove", onAreaSearchBoxMove, { passive: false });
+  map.getContainer().addEventListener("mouseup", onAreaSearchBoxEnd);
+  map.getContainer().addEventListener("touchend", onAreaSearchBoxEnd);
+}
+
+function onAreaSearchBoxMove(e) {
+  if (!areaSearchBoxPreview || !areaSearchBoxStart) return;
+  e.preventDefault();
+  areaSearchBoxPreview.setBounds(L.latLngBounds(areaSearchBoxStart, getLatLngFromEvent(e)));
+}
+
+async function onAreaSearchBoxEnd(e) {
+  if (!areaSearchBoxStart) return;
+  const bounds = L.latLngBounds(areaSearchBoxStart, getLatLngFromEvent(e));
+  map.getContainer().removeEventListener("mousedown", onAreaSearchBoxStart);
+  map.getContainer().removeEventListener("touchstart", onAreaSearchBoxStart);
+  map.getContainer().removeEventListener("mousemove", onAreaSearchBoxMove);
+  map.getContainer().removeEventListener("touchmove", onAreaSearchBoxMove);
+  map.getContainer().removeEventListener("mouseup", onAreaSearchBoxEnd);
+  map.getContainer().removeEventListener("touchend", onAreaSearchBoxEnd);
+  map.dragging.enable();
+  map.getContainer().style.cursor = "";
+  areaSearchBoxDrawing = false;
+  setAreaSearchBoxActive(false);
+  if (areaSearchBoxPreview) { map.removeLayer(areaSearchBoxPreview); areaSearchBoxPreview = null; }
+  areaSearchBoxStart = null;
+
+  const trivial = bounds.getNorth() === bounds.getSouth() || bounds.getEast() === bounds.getWest();
+  if (trivial) return;
+
+  const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+  const verts = [[sw.lat, sw.lng], [ne.lat, sw.lng], [ne.lat, ne.lng], [sw.lat, ne.lng]];
+  const { nsKm, ewKm } = polyAreaKm(verts);
+
+  if (nsKm > AREA_SEARCH_MAX_KM || ewKm > AREA_SEARCH_MAX_KM) {
+    const proceed = confirm(
+      `This box is ~${Math.round(ewKm)}km × ${Math.round(nsKm)}km — larger than the recommended ${AREA_SEARCH_MAX_KM}km limit.\n\nProceed anyway?`
+    );
+    if (!proceed) return;
+  }
+
+  clearAreaSearchResults(false);
+  areaSearchDrawLayer = L.rectangle(bounds, {
+    color: "#a060c0", weight: 1.5, fillColor: "#a060c0", fillOpacity: 0.05
+  }).addTo(map);
+
+  await runAreaHerbariumSearch(verts, nsKm, ewKm);
+}
+
+function startAreaSearch() {
+  if (drawingPoly) cancelAreaDraw();
+  if (drawingBox) cancelBoxDraw();
+  if (areaSearchBoxDrawing) cancelAreaSearchBox();
+  areaSearchDrawing = true;
+  areaSearchPolyVertices = [];
+  setAreaSearchDrawActive(true);
+  document.getElementById("close-search-poly-btn").style.display = "block";
+  if (window.innerWidth <= 768) document.getElementById("panel").classList.add("hidden");
+  map.getContainer().style.cursor = "crosshair";
+  map.on("click", onAreaSearchPolyClick);
+  document.addEventListener("keydown", onAreaSearchKeyDown);
+}
+
+function cancelAreaSearch() {
+  areaSearchDrawing = false;
+  areaSearchPolyVertices = [];
+  setAreaSearchDrawActive(false);
+  document.getElementById("close-search-poly-btn").style.display = "none";
+  map.getContainer().style.cursor = "";
+  map.off("click", onAreaSearchPolyClick);
+  document.removeEventListener("keydown", onAreaSearchKeyDown);
+  clearAreaSearchPolyPreview();
+}
+
+function onAreaSearchKeyDown(e) {
+  if (e.key === "Enter") { e.preventDefault(); tryCloseAreaSearchPolygon(); }
+  if (e.key === "Escape") { cancelAreaSearch(); }
+}
+
+function onAreaSearchPolyClick(e) {
+  const ll = e.latlng;
+  areaSearchPolyVertices.push([ll.lat, ll.lng]);
+  const dot = L.circleMarker(ll, {
+    radius: 4, color: "#a060c0", weight: 1.5, fillColor: "#a060c0", fillOpacity: 1
+  }).addTo(map);
+  areaSearchPolyMarkers.push(dot);
+  if (areaSearchPolyLine) map.removeLayer(areaSearchPolyLine);
+  areaSearchPolyLine = L.polyline(areaSearchPolyVertices, {
+    color: "#a060c0", weight: 2, dashArray: "5,4"
+  }).addTo(map);
+}
+
+function tryCloseAreaSearchPolygon() {
+  if (areaSearchPolyVertices.length < 3) {
+    alert("Need at least 3 points to close a search polygon.");
+    return;
+  }
+  closeAreaSearchPolygon();
+}
+
+async function closeAreaSearchPolygon() {
+  map.off("click", onAreaSearchPolyClick);
+  document.removeEventListener("keydown", onAreaSearchKeyDown);
+  map.getContainer().style.cursor = "";
+  areaSearchDrawing = false;
+  setAreaSearchDrawActive(false);
+  document.getElementById("close-search-poly-btn").style.display = "none";
+  clearAreaSearchPolyPreview();
+
+  const verts = [...areaSearchPolyVertices];
+  areaSearchPolyVertices = [];
+
+  const { nsKm, ewKm } = polyAreaKm(verts);
+  if (nsKm > AREA_SEARCH_MAX_KM || ewKm > AREA_SEARCH_MAX_KM) {
+    const proceed = confirm(
+      `This polygon's bounding box is ~${Math.round(ewKm)}km × ${Math.round(nsKm)}km — ` +
+      `larger than the recommended ${AREA_SEARCH_MAX_KM}km limit.\n\n` +
+      `A large area may take a long time and make many requests to GBIF's servers.\n\nProceed anyway?`
+    );
+    if (!proceed) return;
+  }
+
+  clearAreaSearchResults(false);
+
+  areaSearchDrawLayer = L.polygon(verts, {
+    color: "#a060c0", weight: 1.5, fillColor: "#a060c0", fillOpacity: 0.05
+  }).addTo(map);
+
+  await runAreaHerbariumSearch(verts, nsKm, ewKm);
+}
+
+async function runAreaHerbariumSearch(verts, nsKm, ewKm) {
+  if (!navigator.onLine) {
+    setAreaSearchStatus("No internet connection — area search requires GBIF/iNat access.", "var(--accent)");
+    return;
+  }
+
+  const doHerb = areaSearchSources.has("herbarium");
+  const doInat = areaSearchSources.has("inat");
+  if (!doHerb && !doInat) {
+    setAreaSearchStatus("Select at least one source (Herbarium or iNaturalist).", "var(--accent)");
+    return;
+  }
+
+  const srcLabel = doHerb && doInat ? "GBIF + iNat" : doHerb ? "GBIF" : "iNaturalist";
+  const taxonFilter = document.getElementById("area-search-taxon").value.trim();
+  const taxonLabel = taxonFilter ? ` for "${taxonFilter}"` : "";
+  setAreaSearchStatus(`Searching ${srcLabel}${taxonLabel} (~${Math.round(ewKm)}km × ${Math.round(nsKm)}km)…`);
+  document.getElementById("area-search-clear-btn").style.display = "block";
+
+  // Record-count safety check -- separate from the area-size warning above.
+  // A modest area can still return an enormous number of records if the
+  // taxon filter is broad (a large genus) or blank (every plant). Checked
+  // once the first page of real results comes back and the true total is
+  // known, before committing to paginating through all of it. Cancelling
+  // either source aborts the whole search -- showing partial results from
+  // just one source when the other was cancelled would be misleading about
+  // completeness.
+  const AREA_SEARCH_MAX_RECORDS = 2000;
+  let cancelledDueToSize = false;
+  function confirmLargeResultSet(total, source) {
+    if (total <= AREA_SEARCH_MAX_RECORDS) return true;
+    const proceed = confirm(
+      `This ${source} search matches approximately ${total.toLocaleString()} records — ` +
+      `more than the recommended ${AREA_SEARCH_MAX_RECORDS.toLocaleString()} limit.\n\n` +
+      `Continuing will make many requests and may take a long time.\n\nProceed anyway?`
+    );
+    if (!proceed) cancelledDueToSize = true;
+    return proceed;
+  }
+
+  // Use the polygon's bounding box for API queries (APIs don't accept
+  // arbitrary polygons), then clip to the exact polygon below.
+  const bbox = polyBbox(verts);
+  const latMin = bbox.latMin, latMax = bbox.latMax;
+  const lonMin = bbox.lonMin, lonMax = bbox.lonMax;
+  const features = [];
+
+  // GBIF's scientificName parameter exact-matches at whatever rank you give
+  // it -- it does NOT expand a bare genus name to include its species (that
+  // only happens for species-level names, which also pull in synonyms).
+  // Confirmed empirically: "Astragalus phoenix" finds records, "Astragalus"
+  // alone finds none, in the same area. So for single-word (genus-level)
+  // input, resolve it to a GBIF taxonKey first via the species-match
+  // endpoint -- taxonKey-based searches DO correctly include every species
+  // under that genus. Multi-word input (a full species name) keeps using
+  // scientificName directly, since that's confirmed to work.
+  let gbifTaxonKey = null;
+  if (doHerb && taxonFilter && !taxonFilter.includes(" ")) {
+    try {
+      const matchParams = new URLSearchParams({ name: taxonFilter, rank: "GENUS", kingdom: "Plantae" });
+      const matchResp = await fetch(`https://api.gbif.org/v1/species/match?${matchParams}`);
+      if (matchResp.ok) {
+        const matchData = await matchResp.json();
+        if (matchData.rank === "GENUS" && matchData.usageKey) {
+          gbifTaxonKey = matchData.usageKey;
+        }
+      }
+    } catch (err) {
+      // Non-fatal -- falls through to scientificName below, which will
+      // likely return zero for a bare genus, but won't crash the search.
+      console.warn("Genus resolution failed, falling back to scientificName:", err);
+    }
+  }
+
+  // --- GBIF (herbarium specimens) ---
+  if (doHerb) {
+    let offset = 0;
+    const limit = 300;
+    let totalExpected = null;
+    try {
+      while (true) {
+        const params = new URLSearchParams({
+          kingdom: "Plantae",
+          kingdomKey: "6",        // GBIF internal key for Plantae — more reliable than string match
+          basisOfRecord: "PRESERVED_SPECIMEN",
+          hasCoordinate: "true",
+          decimalLatitude: `${latMin},${latMax}`,
+          decimalLongitude: `${lonMin},${lonMax}`,
+          limit, offset
+        });
+        if (gbifTaxonKey) {
+          params.set("taxonKey", gbifTaxonKey);
+        } else if (taxonFilter) {
+          params.set("scientificName", taxonFilter);
+        }
+        const resp = await fetch(`https://api.gbif.org/v1/occurrence/search?${params}`);
+        if (!resp.ok) throw new Error(`GBIF error ${resp.status}`);
+        const data = await resp.json();
+        if (totalExpected === null) {
+          totalExpected = data.count || 0;
+          if (!confirmLargeResultSet(totalExpected, "GBIF/herbarium")) {
+            setAreaSearchStatus("GBIF search cancelled (result set too large).", "var(--accent)");
+            totalExpected = 0;
+            break;
+          }
+        }
+
+        for (const rec of data.results || []) {
+          const lat = parseFloat(rec.decimalLatitude);
+          const lon = parseFloat(rec.decimalLongitude);
+          if (isNaN(lat) || isNaN(lon)) continue;
+          // Post-filter: skip any record GBIF has assigned to a non-plant kingdom.
+          // kingdomKey should catch most, but data quality issues mean some slip through.
+          const kdom = (rec.kingdom || "").toLowerCase();
+          if (kdom && kdom !== "plantae") continue;
+          features.push({
+            source: "herbarium", lat, lon,
+            taxon: rec.scientificName || rec.species || "Unknown",
+            family: rec.family || "",
+            date: rec.eventDate || String(rec.year || ""),
+            collector: rec.recordedBy || "",
+            institution: rec.institutionCode || "",
+            catalog: rec.catalogNumber || "",
+            locality: rec.locality || rec.verbatimLocality || "",
+            county: rec.county || "",
+            elevation: rec.elevation || "",
+            url: rec.key ? `https://www.gbif.org/occurrence/${rec.key}` : ""
+          });
+        }
+        setAreaSearchStatus(`Herbarium: ${features.filter(f=>f.source==="herbarium").length} of ~${totalExpected}…`);
+        if (!data.results?.length || offset + limit >= (totalExpected || 0)) break;
+        offset += limit;
+        await new Promise(r => setTimeout(r, 500));
+      }
+    } catch (err) {
+      setAreaSearchStatus(`GBIF error: ${err.message}`, "var(--accent)");
+      return;
+    }
+  }
+
+  // --- iNaturalist observations ---
+  if (doInat) {
+    let page = 1;
+    const perPage = 200;
+    let totalInat = null;
+    const inatBase = "https://api.inaturalist.org/v1/observations";
+    try {
+      while (true) {
+        const params = new URLSearchParams({
+          taxon_id: "47126",   // iNat's internal ID for kingdom Plantae — strict filter
+          iconic_taxa: "Plantae",
+          nelat: latMax, nelng: lonMax, swlat: latMin, swlng: lonMin,
+          per_page: perPage, page,
+          order: "desc", order_by: "created_at"
+        });
+        if (taxonFilter) params.set("taxon_name", taxonFilter);
+        const resp = await fetch(`${inatBase}?${params}`);
+        if (!resp.ok) throw new Error(`iNat error ${resp.status}`);
+        const data = await resp.json();
+        if (totalInat === null) {
+          totalInat = data.total_results || 0;
+          if (!confirmLargeResultSet(totalInat, "iNaturalist")) {
+            setAreaSearchStatus("iNaturalist search cancelled (result set too large).", "var(--accent)");
+            totalInat = 0;
+            break;
+          }
+        }
+
+        for (const obs of data.results || []) {
+          if (!obs.location) continue;
+          const [lat, lon] = obs.location.split(",").map(Number);
+          if (isNaN(lat) || isNaN(lon)) continue;
+          features.push({
+            source: "inat", lat, lon,
+            taxon: obs.taxon?.name || obs.species_guess || "Unknown",
+            family: obs.taxon?.iconic_taxon_name || "",
+            date: obs.observed_on || "",
+            collector: obs.user?.login || "",
+            institution: "",
+            catalog: String(obs.id || ""),
+            locality: obs.place_guess || "",
+            county: "", elevation: "",
+            url: obs.id ? `https://www.inaturalist.org/observations/${obs.id}` : "",
+            quality_grade: obs.quality_grade || "",
+            obscured: obs.obscured || false
+          });
+        }
+        setAreaSearchStatus(
+          `${doHerb ? `Herb: ${features.filter(f=>f.source==="herbarium").length} | ` : ""}` +
+          `iNat: ${features.filter(f=>f.source==="inat").length} of ~${totalInat}…`
+        );
+        if (!data.results?.length || page * perPage >= (totalInat || 0)) break;
+        page++;
+        await new Promise(r => setTimeout(r, 500));
+      }
+    } catch (err) {
+      setAreaSearchStatus(`iNat error: ${err.message}`, "var(--accent)");
+      return;
+    }
+  }
+
+  if (cancelledDueToSize) {
+    setAreaSearchStatus("Search cancelled (result set too large). Try a smaller area or a narrower taxon filter.", "var(--accent)");
+    return;
+  }
+
+  if (features.length === 0) {
+    setAreaSearchStatus("No records found in this area.");
+    return;
+  }
+
+  // Clip to the actual polygon — API queries used the bbox, which may
+  // include corners outside the polygon's edges.
+  const clipped = features.filter(f => pointInPolygon(f.lat, f.lon, verts));
+  if (clipped.length === 0) {
+    setAreaSearchStatus("No records found inside the drawn polygon.");
+    return;
+  }
+
+  const taxa = {};
+  clipped.forEach(f => { taxa[f.taxon] = (taxa[f.taxon] || 0) + 1; });
+  const herbCount = clipped.filter(f => f.source === "herbarium").length;
+  const inatCount = clipped.filter(f => f.source === "inat").length;
+  const parts = [];
+  if (doHerb) parts.push(`${herbCount} herbarium`);
+  if (doInat) parts.push(`${inatCount} iNat`);
+  setAreaSearchStatus(`${parts.join(" + ")} records, ${Object.keys(taxa).length} taxa.`, "var(--accent)");
+
+  // Store for export
+  areaSearchResultFeatures = clipped;
+  document.getElementById("area-search-export-group").style.display = "flex";
+
+  // Plot results using a cluster group so coincident points can be separated
+  // by zooming in or clicking to spiderfy — same behavior as the main dataset.
+  // Purple = herbarium, teal = iNat, both distinct from main dataset gold.
+  if (areaSearchClusterGroup) { map.removeLayer(areaSearchClusterGroup); }
+  areaSearchClusterGroup = L.markerClusterGroup({
+    maxClusterRadius: 35,
+    disableClusteringAtZoom: 19,
+    spiderfyOnMaxZoom: true,
+    spiderfyDistanceMultiplier: 1.5,
+    zoomToBoundsOnClick: true,
+    iconCreateFunction: cluster => {
+      const count = cluster.getChildCount();
+      return L.divIcon({
+        html: `<div style="background:#6040a0;color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${count}</div>`,
+        className: "", iconSize: [32, 32], iconAnchor: [16, 16]
+      });
+    }
+  });
+  areaSearchResultLayer = areaSearchClusterGroup;
+  clipped.forEach(f => {
+    const color = f.source === "herbarium" ? "#a060c0" : "#40b0a0";
+    const marker = L.circleMarker([f.lat, f.lon], {
+      radius: 5, color, weight: 1.5, fillColor: color, fillOpacity: 0.6
+    });
+    const srcLabel = f.source === "herbarium" ? "Herbarium" : `iNaturalist${f.quality_grade ? " (" + f.quality_grade + ")" : ""}`;
+    marker.bindPopup(`
+      <b style="color:#c8a85a">${f.taxon}</b>${f.family ? ` <span style="color:#9a9da2">(${f.family})</span>` : ""}<br>
+      <span style="color:#9a9da2">${srcLabel}</span><br>
+      ${f.date || "Date unknown"}<br>
+      ${f.institution ? f.institution + (f.catalog ? " — " + f.catalog : "") + "<br>" : ""}
+      ${f.county ? f.county + ". " : ""}${f.locality || ""}<br>
+      ${f.elevation ? "Elev: " + f.elevation + "m<br>" : ""}
+      ${f.collector ? (f.source === "herbarium" ? "Coll: " : "Observer: ") + f.collector + "<br>" : ""}
+      ${f.obscured ? '<span style="color:var(--accent)">⚠ Coordinates obscured</span><br>' : ""}
+      ${f.url ? `<a href="${f.url}" target="_blank" style="color:#c8a85a">View record</a>` : ""}
+    `);
+    areaSearchClusterGroup.addLayer(marker);
+  });
+  areaSearchClusterGroup.addTo(map);
+}
+
+// ── Area search exports ──
+// Reuse buildWaypointLabel + escapeXml already defined below.
+// Area search features use flat {source, taxon, date, collector, ...} shape
+// rather than the GeoJSON {geometry, properties} shape the main dataset uses,
+// so we build a compatible props object before passing to buildWaypointLabel.
+
+function areaSearchProps(f) {
+  return {
+    source: f.source,
+    taxon: f.taxon,
+    collection_date: f.source === "herbarium" ? f.date : "",
+    observed_on: f.source === "inat" ? f.date : "",
+    collector: f.collector,
+    observer: f.collector,
+    institution: f.institution,
+    county: f.county,
+    locality: f.locality,
+    elevation_m: f.elevation,
+    quality_grade: f.quality_grade,
+    coordinates_obscured: f.obscured,
+    url: f.url,
+    endemism_category: "",
+    esa_status: "",
+    nv_state_status: "",
+  };
+}
+
+function exportAreaSearchGeoJSON() {
+  if (!areaSearchResultFeatures.length) return;
+  const features = areaSearchResultFeatures.map(f => {
+    const props = areaSearchProps(f);
+    const { title, notes } = buildWaypointLabel(props);
+    return {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [f.lon, f.lat] },
+      properties: { ...props, title, name: title, notes, description: notes,
+                    family: f.family, catalog_number: f.catalog }
+    };
+  });
+  const blob = new Blob([JSON.stringify({ type: "FeatureCollection", features }, null, 2)],
+    { type: "application/json" });
+  triggerDownload(blob, "area_search_results.geojson");
+}
+
+function exportAreaSearchGPX() {
+  if (!areaSearchResultFeatures.length) return;
+  const wpts = areaSearchResultFeatures.map(f => {
+    const props = areaSearchProps(f);
+    const { title, notes } = buildWaypointLabel(props);
+    return `  <wpt lat="${f.lat}" lon="${f.lon}">\n    <name>${escapeXml(title)}</name>\n    <desc>${escapeXml(notes)}</desc>\n  </wpt>`;
+  }).join("\n");
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Nevada Endemics Map" xmlns="http://www.topografix.com/GPX/1/1">\n${wpts}\n</gpx>`;
+  const blob = new Blob(["\uFEFF" + gpx], { type: "application/gpx+xml;charset=utf-8" });
+  triggerDownload(blob, "area_search_results.gpx");
+}
+
+function exportAreaSearchCSV() {
+  if (!areaSearchResultFeatures.length) return;
+  const headers = ["latitude","longitude","taxon","family","source","date","collector",
+                   "institution","catalog_number","county","locality","elevation_m",
+                   "quality_grade","coordinates_obscured","url"];
+  const rows = areaSearchResultFeatures.map(f => [
+    f.lat, f.lon, f.taxon, f.family, f.source, f.date, f.collector,
+    f.institution, f.catalog, f.county, f.locality, f.elevation,
+    f.quality_grade, f.obscured ? "true" : "", f.url
+  ].map(v => escapeCsv(String(v ?? ""))));
+  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  triggerDownload(blob, "area_search_results.csv");
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function clearAreaSearchResults(resetButton = true) {
+  if (areaSearchClusterGroup) { map.removeLayer(areaSearchClusterGroup); areaSearchClusterGroup = null; }
+  if (areaSearchResultLayer) { map.removeLayer(areaSearchResultLayer); areaSearchResultLayer = null; }
+  if (areaSearchDrawLayer) { map.removeLayer(areaSearchDrawLayer); areaSearchDrawLayer = null; }
+  areaSearchResultFeatures = [];
+  document.getElementById("area-search-export-group").style.display = "none";
+  if (resetButton) {
+    setAreaSearchStatus("");
+    document.getElementById("area-search-clear-btn").style.display = "none";
+  }
+}
+
+function renderMarkers() {
+  clusterGroup.clearLayers();
+  markersByFeature.clear();
+  let count = 0;
+  const taxaSeen = new Set();
+
+  allFeatures.forEach(f => {
+    if (!featureVisible(f)) return;
+    const coords = f.geometry.coordinates;
+    const marker = L.marker([coords[1], coords[0]], {
+      icon: createMarkerIcon(f.properties),
+      riseOnHover: true,
+    });
+    // Performance: don't build popup HTML for all 14k+ points upfront on
+    // every filter change — only generate it the moment a marker is actually
+    // clicked. bindPopup still works the same from the caller's perspective;
+    // Leaflet calls this function lazily right before opening the popup.
+    marker.bindPopup(() => buildPopup(f.properties, coords), { maxWidth: 280 });
+    clusterGroup.addLayer(marker);
+    markersByFeature.set(f, marker);
+    count++;
+    taxaSeen.add(f.properties.taxon);
+  });
+
+  document.getElementById("record-count").textContent =
+    `${count.toLocaleString()} record${count !== 1 ? "s" : ""}, ${taxaSeen.size.toLocaleString()} ${taxaSeen.size === 1 ? "taxon" : "taxa"}`;
+
+  currentVisibleTaxa = [...taxaSeen].sort();
+  if (document.getElementById("taxa-dropdown").classList.contains("open")) {
+    renderTaxaDropdown();
+  }
+}
+
+// ============================================================
+// TAXA DROPDOWN (record count -> alphabetical list w/ Wikipedia links)
+// ============================================================
+
+let currentVisibleTaxa = [];
+
+function wikipediaUrl(taxonName) {
+  // Best-effort link, not guaranteed to resolve for every taxon (some rare
+  // endemics may not have a Wikipedia page yet) -- Wikipedia's search will
+  // still land the user somewhere useful even on a miss.
+  return `https://en.wikipedia.org/wiki/${encodeURIComponent(taxonName.replace(/ /g, "_"))}`;
+}
+
+function renderTaxaDropdown() {
+  const el = document.getElementById("taxa-dropdown");
+  if (currentVisibleTaxa.length === 0) {
+    el.innerHTML = `<div class="taxa-dropdown-note">No taxa match the current filters.</div>`;
+    return;
+  }
+  const links = currentVisibleTaxa
+    .map(t => `<a href="${wikipediaUrl(t)}" target="_blank" rel="noopener" title="${t}">${t}</a>`)
+    .join("");
+  el.innerHTML = links + `<div class="taxa-dropdown-note">Links go to Wikipedia by scientific name — not every taxon has a page yet.</div>`;
+}
+
+document.getElementById("record-count").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const el = document.getElementById("taxa-dropdown");
+  const opening = !el.classList.contains("open");
+  el.classList.toggle("open", opening);
+  if (opening) renderTaxaDropdown();
+});
+
+// Close the dropdown on any click outside it
+document.addEventListener("click", (e) => {
+  const wrap = document.getElementById("record-count-wrap");
+  if (!wrap.contains(e.target)) {
+    document.getElementById("taxa-dropdown").classList.remove("open");
+  }
+});
+
+// ============================================================
+// TAXON LIST UI
+// ============================================================
+
+function buildTaxonList(filter = "") {
+  // Only list taxa whose endemism_category is currently enabled -- otherwise
+  // Simple mode users could search for and select a non-endemic taxon that's
+  // filtered off the map, seeing nothing happen with no explanation why.
+  const endemismByTaxon = new Map();
+  allFeatures.forEach(f => {
+    if (!endemismByTaxon.has(f.properties.taxon)) {
+      endemismByTaxon.set(f.properties.taxon, f.properties.endemism_category || "endemic");
+    }
+  });
+  const taxonNames = [...endemismByTaxon.keys()]
+    .filter(name => state.endemism.has(endemismByTaxon.get(name)))
+    .sort();
+  const filtered = filter
+    ? taxonNames.filter(n => n.toLowerCase().includes(filter.toLowerCase()))
+    : taxonNames;
+
+  const ul = document.getElementById("taxon-list");
+  ul.innerHTML = "";
+
+  filtered.slice(0, 80).forEach(name => {
+    const li = document.createElement("li");
+    if (name === state.selectedTaxon) li.classList.add("active");
+    const dot = document.createElement("span");
+    dot.className = "taxon-dot";
+    dot.style.background = getSpeciesColor(name);
+    li.appendChild(dot);
+    li.appendChild(document.createTextNode(name));
+    li.addEventListener("click", () => {
+      if (state.selectedTaxon === name) {
+        state.selectedTaxon = null;
+      } else {
+        state.selectedTaxon = name;
+      }
+      buildTaxonList(document.getElementById("taxon-search").value);
+      updateTaxonCard();
+      renderMarkers();
+      if (state.selectedTaxon) fitToTaxon(state.selectedTaxon);
+    });
+    ul.appendChild(li);
+  });
+
+  if (filtered.length > 80) {
+    const li = document.createElement("li");
+    li.textContent = `…${filtered.length - 80} more, refine search`;
+    li.style.color = "var(--text-dim)";
+    li.style.fontStyle = "normal";
+    ul.appendChild(li);
+  }
+}
+
+function updateTaxonCard() {
+  const card = document.getElementById("taxon-card");
+  if (!state.selectedTaxon) {
+    card.className = "";
+    card.innerHTML = "";
+    return;
+  }
+  const meta = taxaMetadata[state.selectedTaxon] || {};
+  const herbCount = allFeatures.filter(f => f.properties.taxon === state.selectedTaxon && f.properties.source === "herbarium").length;
+  const inatCount = allFeatures.filter(f => f.properties.taxon === state.selectedTaxon && f.properties.source === "inat").length;
+  const esa  = meta.esa_status  ? `<span class="badge badge-esa">${meta.esa_status}</span>` : "—";
+  const nvs  = meta.nv_state_status ? `<span class="badge badge-nv">${meta.nv_state_status}</span>` : "—";
+  const ecat = meta.endemism_category || "endemic";
+
+  card.className = "visible";
+  card.innerHTML = `
+    <div class="tc-name">${state.selectedTaxon}</div>
+    <div class="tc-row"><span class="tc-label">Category</span><span class="tc-val"><span class="badge badge-${ecat}">${ecat}</span></span></div>
+    <div class="tc-row"><span class="tc-label">ESA Status</span><span class="tc-val">${esa}</span></div>
+    <div class="tc-row"><span class="tc-label">NV Status</span><span class="tc-val">${nvs}</span></div>
+    <div class="tc-row"><span class="tc-label">Book Category</span><span class="tc-val">${meta.book_thematic_category || "—"}</span></div>
+    <div class="tc-row"><span class="tc-label">Book Region</span><span class="tc-val">${meta.physiographic_region || "—"}</span></div>
+    <div class="tc-row"><span class="tc-label">Book Section</span><span class="tc-val">${meta.physiographic_section || "—"}</span></div>
+    <div class="tc-row" style="font-size:10px;color:var(--text-dim);"><span class="tc-label"></span><span class="tc-val">Book's general description — individual points may differ; use the Region/Section filters for exact per-point location.</span></div>
+    <div class="tc-row"><span class="tc-label">Herbarium</span><span class="tc-val">${herbCount} records</span></div>
+    <div class="tc-row"><span class="tc-label">iNaturalist</span><span class="tc-val">${inatCount} obs.</span></div>
+    ${meta.notes ? `<div class="tc-row"><span class="tc-label">Notes</span><span class="tc-val">${meta.notes}</span></div>` : ""}
+  `;
+}
+
+// ============================================================
+// FIT MAP TO TAXON
+// ============================================================
+
+function fitToTaxon(taxon) {
+  const pts = allFeatures
+    .filter(f => f.properties.taxon === taxon)
+    .map(f => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
+  if (pts.length) {
+    try { map.fitBounds(L.latLngBounds(pts).pad(0.2)); }
+    catch(e) { map.setView(pts[0], 10); }
+  }
+}
+
+// ============================================================
+// THEME CHIPS (dynamic)
+// ============================================================
+
+function buildThemeChips() {
+  const themes = new Set(
+    allFeatures.map(f => f.properties.book_thematic_category || "").filter(Boolean)
+  );
+  state.themes = new Set([...themes, ""]);  // "" = uncategorized
+
+  const container = document.getElementById("theme-chips");
+  container.innerHTML = "";
+
+  const allBtn = document.createElement("button");
+  allBtn.className = "chip on";
+  allBtn.textContent = "All";
+
+  // Reflects current state on the "All" chip: lit only when every individual
+  // theme chip is also on. Called after every individual toggle so "All"
+  // never gets stuck showing a state that doesn't match reality.
+  function syncAllButton() {
+    const allThemeBtns = container.querySelectorAll(".chip[data-theme]");
+    const allOn = [...allThemeBtns].every(b => b.classList.contains("on"));
+    allBtn.classList.toggle("on", allOn);
+  }
+
+  allBtn.addEventListener("click", () => {
+    // True toggle: if everything is currently on, turn everything off;
+    // otherwise (anything off, or a mixed state), turn everything on.
+    // This matches the intuitive expectation of a master switch.
+    const turningOn = !allBtn.classList.contains("on");
+    if (turningOn) {
+      state.themes = new Set([...themes, ""]);
+    } else {
+      state.themes = new Set();
+    }
+    container.querySelectorAll(".chip[data-theme]").forEach(c => c.classList.toggle("on", turningOn));
+    allBtn.classList.toggle("on", turningOn);
+    renderMarkers();
+  });
+  container.appendChild(allBtn);
+
+  [...themes].sort().forEach(theme => {
+    const btn = document.createElement("button");
+    btn.className = "chip on";
+    btn.textContent = theme || "(uncategorized)";
+    btn.dataset.theme = theme;
+    btn.addEventListener("click", () => {
+      if (state.themes.has(theme)) {
+        state.themes.delete(theme);
+        btn.classList.remove("on");
+      } else {
+        state.themes.add(theme);
+        btn.classList.add("on");
+      }
+      syncAllButton();
+      renderMarkers();
+    });
+    container.appendChild(btn);
+  });
+}
+
+// ============================================================
+// GENUS SELECT
+// ============================================================
+
+function buildGenusSelect() {
+  const genera = [...new Set(allFeatures.map(f => f.properties.genus || "").filter(Boolean))].sort();
+  const sel = document.getElementById("genus-select");
+  genera.forEach(g => {
+    const opt = document.createElement("option");
+    opt.value = g; opt.textContent = g;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.genus = sel.value;
+    renderMarkers();
+  });
+}
+
+// ============================================================
+// COUNTY SELECT
+// ============================================================
+
+function buildCountySelect() {
+  const counties = [...new Set(allFeatures.map(f => f.properties.county || "").filter(Boolean))].sort();
+  const sel = document.getElementById("county-select");
+  counties.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c; opt.textContent = c;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.county = sel.value;
+    updateCountyHighlight();
+    renderMarkers();
+  });
+}
+
+// Computes the "X of Y points resolved" note live from whatever data is
+// actually loaded, instead of a hardcoded string -- so it's automatically
+// correct after future data refreshes (re-running fetch_occurrences.py +
+// add_county.py + add_regions.py), no manual text editing required.
+// County and region are counted independently and only combined into one
+// sentence if they happen to match exactly -- they aren't guaranteed to,
+// since each is computed by its own script against its own boundary file.
+function renderGeoStatsNote() {
+  const total = allFeatures.length;
+  const countyResolved = allFeatures.filter(f => f.properties.county).length;
+  const regionResolved = allFeatures.filter(f => f.properties.physiographic_region).length;
+
+  const fmt = n => n.toLocaleString();
+  let text;
+  if (countyResolved === regionResolved) {
+    text = `County and Physiographic Region/Section: ${fmt(countyResolved)} of ${fmt(total)} points resolved with confidence; a handful of records with clearly bad source coordinates are excluded rather than guessed at.`;
+  } else {
+    text = `County: ${fmt(countyResolved)} of ${fmt(total)} points resolved. Physiographic Region/Section: ${fmt(regionResolved)} of ${fmt(total)} points resolved. A handful of records with clearly bad source coordinates are excluded rather than guessed at.`;
+  }
+  document.getElementById("geo-stats-note").textContent = text;
+}
+
+// ============================================================
+// NAMED PLACE SELECT
+// ============================================================
+
+function buildPlaceSelect() {
+  const places = [...new Set(allFeatures.map(f => f.properties.named_place || "").filter(Boolean))].sort();
+  const sel = document.getElementById("place-select");
+  places.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p; opt.textContent = p;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.namedPlace = sel.value;
+    updatePlaceHighlight();
+    renderMarkers();
+  });
+}
+
+// ============================================================
+// BLM / USFS STATUS SELECTS
+// ============================================================
+
+function buildBlmSelect() {
+  const vals = [...new Set(allFeatures.map(f => f.properties.blm_status || "").filter(Boolean))].sort();
+  const sel = document.getElementById("blm-select");
+  vals.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = v;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.blmStatus = sel.value;
+    renderMarkers();
+  });
+}
+
+function buildUsfsSelect() {
+  const vals = [...new Set(allFeatures.map(f => f.properties.usfs_status || "").filter(Boolean))].sort();
+  const sel = document.getElementById("usfs-select");
+  vals.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = v;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.usfsStatus = sel.value;
+    renderMarkers();
+  });
+}
+
+const GRANK_LABELS = {
+  G1: "G1 — Critically Imperiled",
+  G2: "G2 — Imperiled",
+  G3: "G3 — Vulnerable",
+  G4: "G4 — Apparently Secure",
+  G5: "G5 — Secure",
+};
+
+function buildGrankSelect() {
+  const vals = [...new Set(allFeatures.map(f => f.properties.natureserve_grank || "").filter(Boolean))].sort();
+  const sel = document.getElementById("grank-select");
+  vals.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = GRANK_LABELS[v] || v;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.grank = sel.value;
+    renderMarkers();
+  });
+}
+
+// Draws (or clears) an outline of the currently-selected county on the map.
+// Purely visual — has no effect on which points are shown; that's handled by
+// featureVisible() reading state.county directly against each point's
+// precomputed county field.
+function updateCountyHighlight() {
+  if (countyBoundaryLayer) {
+    map.removeLayer(countyBoundaryLayer);
+    countyBoundaryLayer = null;
+  }
+  if (!state.county || !countyBoundaries) return;
+
+  // state.county is the clean display form, e.g. "Nye County" / "Carson City".
+  // The boundary file's NAME property is the bare county name, e.g. "Nye".
+  const feature = countyBoundaries.features.find(f => {
+    const n = f.properties.NAME;
+    const display = n === "Carson City" ? n : `${n} County`;
+    return display === state.county;
+  });
+  if (!feature) return;
+
+  countyBoundaryLayer = L.geoJSON(feature, {
+    style: {
+      color: getComputedStyle(document.documentElement).getPropertyValue("--accent2").trim() || "#6a9e7f",
+      weight: 2.5,
+      dashArray: "6,4",
+      fill: false,
+    },
+    interactive: false,  // let clicks pass through to markers/basemap underneath
+  }).addTo(map);
+
+  map.fitBounds(countyBoundaryLayer.getBounds(), { padding: [30, 30], maxZoom: 10 });
+}
+
+// Draws (or clears) an outline of the currently-selected region and/or
+// section on the map. Same purely-visual role as updateCountyHighlight —
+// featureVisible() does the actual filtering off precomputed per-point
+// fields. Handles sections traced as multiple disjoint polygons (Bonneville
+// Section, Sierra Nevada Section) by drawing every matching feature, not
+// just the first.
+function updateRegionHighlight() {
+  if (regionBoundaryLayer) {
+    map.removeLayer(regionBoundaryLayer);
+    regionBoundaryLayer = null;
+  }
+  if ((!state.region && !state.section) || !regionBoundaries) return;
+
+  const matches = regionBoundaries.features.filter(f => {
+    const p = f.properties;
+    if (state.section) return p.section === state.section;
+    return p.region === state.region;
+  });
+  if (!matches.length) return;
+
+  regionBoundaryLayer = L.geoJSON(
+    { type: "FeatureCollection", features: matches },
+    {
+      style: {
+        color: getComputedStyle(document.documentElement).getPropertyValue("--accent2").trim() || "#6a9e7f",
+        weight: 2.5,
+        dashArray: "6,4",
+        fill: false,
+      },
+      interactive: false,
+    }
+  ).addTo(map);
+
+  map.fitBounds(regionBoundaryLayer.getBounds(), { padding: [30, 30], maxZoom: 10 });
+}
+
+// Same purpose again, for the Named Place filter.
+function updatePlaceHighlight() {
+  if (placeBoundaryLayer) {
+    map.removeLayer(placeBoundaryLayer);
+    placeBoundaryLayer = null;
+  }
+  if (!state.namedPlace || !placeBoundaries) return;
+
+  const feature = placeBoundaries.features.find(f => f.properties.place === state.namedPlace);
+  if (!feature) return;
+
+  placeBoundaryLayer = L.geoJSON(feature, {
+    style: {
+      color: getComputedStyle(document.documentElement).getPropertyValue("--accent2").trim() || "#6a9e7f",
+      weight: 2.5,
+      dashArray: "6,4",
+      fill: false,
+    },
+    interactive: false,
+  }).addTo(map);
+
+  map.fitBounds(placeBoundaryLayer.getBounds(), { padding: [30, 30], maxZoom: 10 });
+}
+
+// ============================================================
+// PHYSIOGRAPHIC REGION / SECTION SELECTS (cascading)
+// ============================================================
+
+// Maps region name -> Set of section names that belong to it, built from data
+let regionToSections = new Map();
+
+// ============================================================
+// PLACE NAME DATABASE & SEARCH
+// ============================================================
+// Approximate center coordinates for named Nevada mountain ranges, valleys,
+// and protected areas referenced in Tiehm & Nachlinger's introduction and
+// in general use. These are reasonable approximate centers for navigation
+// purposes only — NOT precise boundaries (we don't have GIS polygon data
+// for these features; see the project notes on Figs. 2 & 3 in the book).
+// zoom: a reasonable level to view the whole feature at once.
+const PLACES_DB = [
+  // Mountain ranges
+  { name: "Egan Range", type: "Range", lat: 39.25, lon: -114.85, zoom: 10 },
+  { name: "Schell Creek Range", type: "Range", lat: 39.30, lon: -114.55, zoom: 10 },
+  { name: "Snake Range", type: "Range", lat: 39.00, lon: -114.30, zoom: 10 },
+  { name: "Toiyabe Range", type: "Range", lat: 38.85, lon: -117.05, zoom: 9 },
+  { name: "Toquima Range", type: "Range", lat: 38.85, lon: -116.85, zoom: 10 },
+  { name: "Ruby Mountains", type: "Range", lat: 40.40, lon: -115.45, zoom: 10 },
+  { name: "East Humboldt Range", type: "Range", lat: 41.05, lon: -115.05, zoom: 10 },
+  { name: "Spring Mountains", type: "Range", lat: 36.25, lon: -115.65, zoom: 10 },
+  { name: "Sheep Range", type: "Range", lat: 36.65, lon: -115.20, zoom: 10 },
+  { name: "Pintwater Range", type: "Range", lat: 36.80, lon: -115.30, zoom: 11 },
+  { name: "Wassuk Range", type: "Range", lat: 38.75, lon: -118.65, zoom: 10 },
+  { name: "Pine Nut Mountains", type: "Range", lat: 38.95, lon: -119.40, zoom: 10 },
+  { name: "Jarbidge Mountains", type: "Range", lat: 41.85, lon: -115.40, zoom: 10 },
+  { name: "Independence Mountains", type: "Range", lat: 41.20, lon: -116.00, zoom: 10 },
+  { name: "Santa Rosa Range", type: "Range", lat: 41.60, lon: -117.55, zoom: 10 },
+  { name: "Jackson Mountains", type: "Range", lat: 41.30, lon: -118.55, zoom: 10 },
+  { name: "Pine Forest Range", type: "Range", lat: 41.75, lon: -118.65, zoom: 10 },
+  { name: "Black Rock Range", type: "Range", lat: 41.30, lon: -119.05, zoom: 10 },
+  { name: "Humboldt Range", type: "Range", lat: 40.45, lon: -118.15, zoom: 10 },
+  { name: "Stillwater Range", type: "Range", lat: 39.65, lon: -118.20, zoom: 10 },
+  { name: "Shoshone Mountains", type: "Range", lat: 39.20, lon: -117.50, zoom: 10 },
+  { name: "Monitor Range", type: "Range", lat: 38.95, lon: -116.55, zoom: 10 },
+  { name: "Hot Creek Range", type: "Range", lat: 38.60, lon: -116.30, zoom: 10 },
+  { name: "Kawich Range", type: "Range", lat: 37.65, lon: -116.20, zoom: 10 },
+  { name: "Grant Range", type: "Range", lat: 38.40, lon: -115.45, zoom: 10 },
+  { name: "Quinn Canyon Range", type: "Range", lat: 38.15, lon: -115.55, zoom: 10 },
+  { name: "Pahranagat Range", type: "Range", lat: 37.55, lon: -115.15, zoom: 10 },
+  { name: "Worthington Mountains", type: "Range", lat: 38.10, lon: -115.20, zoom: 10 },
+  { name: "Silver Peak Range", type: "Range", lat: 37.75, lon: -117.65, zoom: 10 },
+  { name: "White Pine Range", type: "Range", lat: 38.85, lon: -115.40, zoom: 10 },
+  { name: "Cherry Creek Range", type: "Range", lat: 39.85, lon: -114.85, zoom: 10 },
+  { name: "Mahogany Mountains (Lincoln Co)", type: "Range", lat: 37.45, lon: -114.10, zoom: 11 },
+  { name: "Delamar Mountains", type: "Range", lat: 37.55, lon: -114.80, zoom: 10 },
+  { name: "Pancake Range", type: "Range", lat: 38.55, lon: -115.95, zoom: 10 },
+  { name: "Wilson Creek Range", type: "Range", lat: 38.30, lon: -114.40, zoom: 10 },
+  { name: "White Rock Mountains", type: "Range", lat: 38.35, lon: -114.20, zoom: 11 },
+  { name: "Virginia Range", type: "Range", lat: 39.40, lon: -119.45, zoom: 10 },
+  { name: "Sweetwater Mountains", type: "Range", lat: 38.45, lon: -119.25, zoom: 10 },
+  { name: "Pilot Mountains", type: "Range", lat: 38.50, lon: -118.05, zoom: 10 },
+  { name: "Desatoya Mountains", type: "Range", lat: 39.35, lon: -117.85, zoom: 10 },
+  { name: "Clan Alpine Mountains", type: "Range", lat: 39.45, lon: -117.65, zoom: 10 },
+  { name: "Augusta Mountains", type: "Range", lat: 40.30, lon: -117.65, zoom: 10 },
+  { name: "Eugene Mountains", type: "Range", lat: 40.55, lon: -118.30, zoom: 10 },
+  { name: "Sonoma Range", type: "Range", lat: 40.65, lon: -117.50, zoom: 10 },
+  { name: "Pinon Range", type: "Range", lat: 40.85, lon: -116.30, zoom: 10 },
+  { name: "Mt. Washington (Snake Range)", type: "Peak", lat: 38.95, lon: -114.30, zoom: 12 },
+  { name: "Wheeler Peak", type: "Peak", lat: 39.005, lon: -114.313, zoom: 12 },
+  { name: "Charleston Peak (Spring Mts)", type: "Peak", lat: 36.27, lon: -115.69, zoom: 12 },
+  { name: "Arc Dome (Toiyabe Range)", type: "Peak", lat: 38.84, lon: -117.33, zoom: 12 },
+
+  // Valleys and basins
+  { name: "Big Smoky Valley", type: "Valley", lat: 38.70, lon: -117.20, zoom: 9 },
+  { name: "Railroad Valley", type: "Valley", lat: 38.55, lon: -115.65, zoom: 9 },
+  { name: "White River Valley", type: "Valley", lat: 38.40, lon: -115.10, zoom: 9 },
+  { name: "Ruby Valley", type: "Valley", lat: 40.20, lon: -115.45, zoom: 9 },
+  { name: "Steptoe Valley", type: "Valley", lat: 39.30, lon: -114.95, zoom: 9 },
+  { name: "Spring Valley (White Pine Co)", type: "Valley", lat: 39.10, lon: -114.40, zoom: 9 },
+  { name: "Lake Valley", type: "Valley", lat: 38.20, lon: -114.30, zoom: 9 },
+  { name: "Cave Valley", type: "Valley", lat: 38.40, lon: -114.65, zoom: 9 },
+  { name: "Antelope Valley", type: "Valley", lat: 39.95, lon: -115.30, zoom: 9 },
+  { name: "Monitor Valley", type: "Valley", lat: 38.85, lon: -116.70, zoom: 9 },
+  { name: "Reese River Valley", type: "Valley", lat: 39.50, lon: -117.20, zoom: 9 },
+  { name: "Fish Lake Valley", type: "Valley", lat: 37.70, lon: -117.95, zoom: 9 },
+  { name: "Amargosa Valley", type: "Valley", lat: 36.65, lon: -116.40, zoom: 9 },
+  { name: "Black Rock Desert", type: "Valley", lat: 41.10, lon: -119.05, zoom: 9 },
+  { name: "Carson Sink", type: "Valley", lat: 39.80, lon: -118.60, zoom: 9 },
+  { name: "Stone Cabin Valley", type: "Valley", lat: 38.30, lon: -116.50, zoom: 9 },
+  { name: "Kawich Valley", type: "Valley", lat: 37.85, lon: -116.30, zoom: 9 },
+  { name: "Garden Valley", type: "Valley", lat: 37.75, lon: -115.35, zoom: 9 },
+  { name: "Coyote Springs Valley", type: "Valley", lat: 36.85, lon: -115.05, zoom: 9 },
+  { name: "Pahute Mesa", type: "Valley", lat: 37.30, lon: -116.40, zoom: 10 },
+  { name: "Yucca Flat", type: "Valley", lat: 37.10, lon: -116.05, zoom: 10 },
+  { name: "Frenchman Flat", type: "Valley", lat: 36.80, lon: -115.95, zoom: 10 },
+  { name: "Meadow Valley", type: "Valley", lat: 37.70, lon: -114.55, zoom: 9 },
+
+  // Protected areas, parks, refuges
+  { name: "Great Basin National Park", type: "Park", lat: 38.98, lon: -114.30, zoom: 11 },
+  { name: "Ash Meadows NWR", type: "Refuge", lat: 36.42, lon: -116.35, zoom: 11 },
+  { name: "Red Rock Canyon NCA", type: "Park", lat: 36.14, lon: -115.43, zoom: 11 },
+  { name: "Desert National Wildlife Refuge", type: "Refuge", lat: 36.85, lon: -115.20, zoom: 9 },
+  { name: "Sheldon National Wildlife Refuge", type: "Refuge", lat: 41.85, lon: -119.20, zoom: 9 },
+  { name: "Nevada National Security Site", type: "Restricted Area", lat: 37.15, lon: -116.10, zoom: 9 },
+  { name: "Basin and Range National Monument", type: "Monument", lat: 38.30, lon: -115.30, zoom: 9 },
+  { name: "Valley of Fire State Park", type: "Park", lat: 36.43, lon: -114.53, zoom: 11 },
+
+  // Cities/towns (for general orientation)
+  { name: "Reno", type: "City", lat: 39.53, lon: -119.81, zoom: 10 },
+  { name: "Las Vegas", type: "City", lat: 36.17, lon: -115.14, zoom: 10 },
+  { name: "Elko", type: "City", lat: 40.83, lon: -115.76, zoom: 10 },
+  { name: "Ely", type: "City", lat: 39.25, lon: -114.89, zoom: 10 },
+  { name: "Tonopah", type: "City", lat: 38.07, lon: -117.23, zoom: 10 },
+  { name: "Carson City", type: "City", lat: 39.16, lon: -119.77, zoom: 10 },
+  { name: "Pioche", type: "City", lat: 37.93, lon: -114.45, zoom: 10 },
+];
+
+function buildPlaceSearch(filter = "") {
+  const list = document.getElementById("place-list");
+  list.innerHTML = "";
+  if (!filter) return;   // only show results once the person starts typing
+
+  const matches = PLACES_DB.filter(p => p.name.toLowerCase().includes(filter.toLowerCase()));
+
+  if (matches.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "No matches — try a different name";
+    li.style.color = "var(--text-dim)";
+    list.appendChild(li);
+    return;
+  }
+
+  matches.slice(0, 25).forEach(place => {
+    const li = document.createElement("li");
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "place-name";
+    nameSpan.textContent = place.name;
+    const typeSpan = document.createElement("span");
+    typeSpan.className = "place-type";
+    typeSpan.textContent = place.type;
+    li.appendChild(nameSpan);
+    li.appendChild(typeSpan);
+    li.addEventListener("click", () => {
+      map.setView([place.lat, place.lon], place.zoom);
+      document.getElementById("place-search").value = place.name;
+      list.innerHTML = "";
+    });
+    list.appendChild(li);
+  });
+}
+
+function buildRegionSelects() {
+  // As of add_regions.py, every point carries one clean region/section value
+  // (computed via point-in-polygon), never the old compound "A / B" strings
+  // that came from taxon-level book tags — so no splitting needed here.
+  const regionSet = new Set();
+  regionToSections = new Map();
+
+  allFeatures.forEach(f => {
+    const r = f.properties.physiographic_region;
+    const s = f.properties.physiographic_section;
+    if (!r || !s) return;  // skip unresolved points (region/section === null)
+    regionSet.add(r);
+    if (!regionToSections.has(r)) regionToSections.set(r, new Set());
+    regionToSections.get(r).add(s);
+  });
+
+  const regionSel = document.getElementById("region-select");
+  const sectionSel = document.getElementById("section-select");
+
+  [...regionSet].sort().forEach(r => {
+    const opt = document.createElement("option");
+    opt.value = r; opt.textContent = r;
+    regionSel.appendChild(opt);
+  });
+
+  function rebuildSectionOptions() {
+    // Clear all but the "All sections" placeholder
+    sectionSel.innerHTML = '<option value="">All sections</option>';
+    let sectionsToShow;
+    if (state.region && regionToSections.has(state.region)) {
+      sectionsToShow = [...regionToSections.get(state.region)];
+    } else {
+      // No region chosen — show every section across all regions
+      sectionsToShow = [...new Set([...regionToSections.values()].flatMap(s => [...s]))];
+    }
+    sectionsToShow.sort().forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s; opt.textContent = s;
+      sectionSel.appendChild(opt);
+    });
+  }
+
+  rebuildSectionOptions();
+
+  regionSel.addEventListener("change", () => {
+    state.region = regionSel.value;
+    state.section = "";       // reset section choice when region changes
+    rebuildSectionOptions();
+    updateRegionHighlight();
+    renderMarkers();
+  });
+  sectionSel.addEventListener("change", () => {
+    state.section = sectionSel.value;
+    updateRegionHighlight();
+    renderMarkers();
+  });
+}
+
+// ============================================================
+// EXPORT (GeoJSON → Gaia GPS compatible)
+// ============================================================
+
+// Builds a human-readable title + notes for one record, used when exporting
+// to GeoJSON so Gaia GPS waypoints aren't just "untitled" — mirrors the same
+// fields shown in the on-map popup (buildPopup above).
+// Colored circle emoji assigned per taxon for Gaia waypoint visual differentiation.
+// Gaia ignores color/icon data in GPX and GeoJSON, so emoji in the title is the
+// only reliable way to get species-level color coding in the waypoint list.
+const WAYPOINT_EMOJI = ["🔴","🟠","🟡","🟢","🔵","🟣","🟤","⚪","🩷","🩵","🟥","🟧","🟨","🟩","🟦","🟪"];
+const taxonEmojiMap = {};
+let taxonEmojiIndex = 0;
+
+function getWaypointEmoji(taxon) {
+  if (!taxonEmojiMap[taxon]) {
+    taxonEmojiMap[taxon] = WAYPOINT_EMOJI[taxonEmojiIndex % WAYPOINT_EMOJI.length];
+    taxonEmojiIndex++;
+  }
+  return taxonEmojiMap[taxon];
+}
+
+function buildWaypointLabel(props) {
+  const isHerb = props.source === "herbarium";
+  const date = isHerb ? (props.collection_date || "date unknown") : (props.observed_on || "date unknown");
+  const sourceLabel = isHerb ? "Herbarium" : "iNat";
+  const emoji = getWaypointEmoji(props.taxon || "Unknown");
+  const title = `${emoji} ${props.taxon} — ${sourceLabel}, ${date}`;
+
+  const lines = [props.taxon, isHerb ? "Herbarium specimen" : "iNaturalist observation", `Date: ${date}`];
+
+  if (isHerb) {
+    lines.push(`Collector: ${props.collector || "—"}`);
+    lines.push(`Institution: ${props.institution || "—"}`);
+    if (props.county) lines.push(`County: ${props.county}`);
+    if (props.locality) lines.push(`Locality: ${props.locality}`);
+  } else {
+    lines.push(`Observer: ${props.observer || "—"}`);
+    lines.push(`Quality grade: ${props.quality_grade || "—"}`);
+    if (props.place_guess) lines.push(`Place: ${props.place_guess}`);
+    const acc = props.positional_accuracy_m;
+    lines.push(`GPS accuracy: ${(acc === "" || acc === null || acc === undefined) ? "not reported" : "±" + Math.round(acc) + " m"}`);
+    if (props.coordinates_obscured) {
+      lines.push("\u26a0 Coordinates obscured by iNat (geoprivacy) \u2014 may be offset by several km.");
+    }
+  }
+
+  lines.push(`Endemism: ${props.endemism_category || "endemic"}`);
+  if (props.esa_status) lines.push(`ESA status: ${props.esa_status}`);
+  if (props.nv_state_status) lines.push(`NV state status: ${props.nv_state_status}`);
+  if (props.url) lines.push(`Record: ${props.url}`);
+
+  return { title, notes: lines.join("\n") };
+}
+
+function exportFiltered() {
+  // title/name and notes/description are added on export only — both common
+  // names, since different apps (Gaia included) look for different keys.
+  // The rest of the app keeps using the original, unmodified properties.
+  const features = allFeatures.filter(featureVisible).map(f => {
+    const { title, notes } = buildWaypointLabel(f.properties);
+    return { ...f, properties: { ...f.properties, title, name: title, notes, description: notes } };
+  });
+  const geojson = { type: "FeatureCollection", features };
+  const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: "application/geo+json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const suffix = state.selectedTaxon
+    ? state.selectedTaxon.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g,"")
+    : "filtered";
+  a.download = `nv_endemics_${suffix}.geojson`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function escapeXml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+// GPX has a standardized <name>/<desc> element for waypoints — unlike
+// GeoJSON, there's no ambiguity about which property an importer reads.
+// Gaia's own docs recommend GPX over other formats, so this is the more
+// reliable option if titles/notes don't show up via the GeoJSON export.
+function exportFilteredGPX() {
+  const features = allFeatures.filter(featureVisible);
+  if (features.length === 0) { alert("No records match the current filters."); return; }
+
+  const wpts = features.map(f => {
+    const { title, notes } = buildWaypointLabel(f.properties);
+    const [lon, lat] = f.geometry.coordinates;
+    return `  <wpt lat="${lat}" lon="${lon}">
+    <name>${escapeXml(title)}</name>
+    <desc>${escapeXml(notes)}</desc>
+  </wpt>`;
+  }).join("\n");
+
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Nevada Endemics Map" xmlns="http://www.topografix.com/GPX/1/1">
+${wpts}
+</gpx>`;
+
+  const blob = new Blob([gpx], { type: "application/gpx+xml" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const suffix = state.selectedTaxon
+    ? state.selectedTaxon.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g,"")
+    : "filtered";
+  a.download = `nv_endemics_${suffix}.gpx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportFilteredCSV() {
+  const features = allFeatures.filter(featureVisible);
+  if (features.length === 0) { alert("No records match the current filters."); return; }
+
+  // Union of all property keys actually present, so the CSV header adapts
+  // to whatever mix of herbarium/iNat fields are in the filtered set.
+  const keySet = new Set(["latitude", "longitude"]);
+  features.forEach(f => Object.keys(f.properties).forEach(k => keySet.add(k)));
+  const headers = [...keySet];
+
+  const escapeCsv = (val) => {
+    if (val === null || val === undefined) return "";
+    const s = String(val);
+    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  };
+
+  const lines = [headers.join(",")];
+  features.forEach(f => {
+    const lon = f.geometry.coordinates[0];
+    const lat = f.geometry.coordinates[1];
+    const row = headers.map(h => {
+      if (h === "latitude") return lat.toFixed(6);
+      if (h === "longitude") return lon.toFixed(6);
+      return escapeCsv(f.properties[h]);
+    });
+    lines.push(row.join(","));
+  });
+
+  const csvContent = lines.join("\r\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const suffix = state.selectedTaxon
+    ? state.selectedTaxon.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g,"")
+    : "filtered";
+  a.download = `nv_endemics_${suffix}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// CHIP TOGGLE HELPERS
+// ============================================================
+
+function wireChips(selector, stateSet) {
+  document.querySelectorAll(selector).forEach(btn => {
+    btn.addEventListener("click", () => {
+      const val = btn.dataset.val || btn.dataset.filter || btn.dataset.grade;
+      if (stateSet.has(val)) {
+        stateSet.delete(val);
+        btn.classList.remove("on");
+      } else {
+        stateSet.add(val);
+        btn.classList.add("on");
+      }
+      renderMarkers();
+    });
+  });
+}
+
+// ============================================================
+// INIT
+// ============================================================
+
+async function init() {
+  // On phones / narrow windows, start with the filter panel closed so the
+  // map is immediately visible; the existing toggle button opens it as an
+  // overlay (see the mobile media query in the <style> block above).
+  if (window.innerWidth <= 768) {
+    document.getElementById("panel").classList.add("hidden");
+  }
+
+  // Map
+  map = L.map("map", {
+    center: [39.5, -116.5],
+    zoom: 7,
+    zoomControl: true,
+    maxZoom: 20,
+  });
+
+  // Basemap — USGS Topo (good for field use)
+  // maxNativeZoom: tiles stop updating past 16, but the map itself can keep
+  // zooming further (maxZoom above) — tiles just upscale/blur slightly. This
+  // tradeoff is worth it: without it, points in dense collection areas (e.g.
+  // popular peaks with many herbarium records) become impossible to separate.
+  L.tileLayer(
+    "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+    { attribution: "USGS National Map", maxZoom: 20, maxNativeZoom: 16 }
+  ).addTo(map);
+
+  // Satellite toggle
+  const satellite = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { attribution: "Esri World Imagery", maxZoom: 20, maxNativeZoom: 19 }
+  );
+  L.control.layers(
+    { "USGS Topo": map._layers[Object.keys(map._layers)[0]], "Satellite": satellite },
+    {},
+    { position: "topright" }
+  ).addTo(map);
+
+  clusterGroup = L.markerClusterGroup({
+    maxClusterRadius: 35,
+    // Disabling clustering entirely at high zoom was causing overlapping points
+    // with no way to separate them (spiderfy only works on actual clusters).
+    // Raising this threshold keeps tight groups of points clustered longer,
+    // so they remain spiderfy-able (click → spreads into a starburst pattern)
+    // even when very close together geographically.
+    disableClusteringAtZoom: 19,
+    spiderfyOnMaxZoom: true,
+    // Tighter spiderfy spacing so spread-out points stay close to their true
+    // location rather than fanning out across a wide visual area.
+    spiderfyDistanceMultiplier: 1.5,
+    zoomToBoundsOnClick: true,
+  });
+  map.addLayer(clusterGroup);
+
+  // Load data — always attempt the real GeoJSON/metadata first.
+  // Falls back to demo data only if the fetch fails or returns no features
+  // (e.g. fetch_occurrences.py hasn't been run yet).
+  let features = [];
+  let meta = {};
+  let usedDemo = false;
+  try {
+    const [geoResp, metaResp] = await Promise.all([
+      fetch(CONFIG.occurrencesUrl),
+      fetch(CONFIG.taxaMetaUrl),
+    ]);
+    if (!geoResp.ok || !metaResp.ok) {
+      throw new Error(`HTTP ${geoResp.status}/${metaResp.status}`);
+    }
+    const geo = await geoResp.json();
+    meta       = await metaResp.json();
+    features   = geo.features || [];
+  } catch(e) {
+    console.warn("Could not load real data, falling back to demo data:", e);
+  }
+
+  if (features.length === 0) {
+    // Use demo data
+    features = generateDemoData();
+    usedDemo = true;
+  } else {
+    taxaMetadata = meta;
+  }
+
+  allFeatures = features;
+
+  // County boundary polygons — used only to visually highlight the selected
+  // county on the map when the County filter is active. Fetched separately
+  // and non-blocking: if this file is missing, the County filter still works
+  // (it filters on the precomputed per-point county field), it just won't
+  // draw an outline.
+  fetch(CONFIG.countiesUrl)
+    .then(r => r.ok ? r.json() : null)
+    .then(geo => { if (geo) countyBoundaries = geo; })
+    .catch(e => console.warn("Could not load county boundaries (highlight-only, non-fatal):", e));
+
+  // Region/section boundary polygons — same purpose and same non-blocking
+  // pattern as counties above. Note this file can have multiple polygon
+  // features sharing the same section name (Bonneville Section: 4 islands;
+  // Sierra Nevada Section: 2 pieces) -- the highlight draws ALL matching
+  // features, not just the first one found.
+  fetch(CONFIG.regionsUrl)
+    .then(r => r.ok ? r.json() : null)
+    .then(geo => { if (geo) regionBoundaries = geo; })
+    .catch(e => console.warn("Could not load region boundaries (highlight-only, non-fatal):", e));
+
+  // Named place boundaries — same non-blocking pattern. Small file (currently
+  // just Ash Meadows NWR), grows over time as more places get added.
+  fetch(CONFIG.placesUrl)
+    .then(r => r.ok ? r.json() : null)
+    .then(geo => { if (geo) placeBoundaries = geo; })
+    .catch(e => console.warn("Could not load named place boundaries (highlight-only, non-fatal):", e));
+
+  // "Data last refreshed" note -- written automatically by fetch_occurrences.py
+  // on every full run (see that script for why --taxon/--test runs don't
+  // update it). Non-blocking, and handled gracefully if the file doesn't
+  // exist yet (e.g. before the first run after this feature was added).
+  fetch(CONFIG.lastRefreshUrl)
+    .then(r => r.ok ? r.json() : null)
+    .then(info => {
+      const el = document.getElementById("last-refresh-note");
+      if (info && info.date) {
+        const d = new Date(info.date + "T00:00:00");
+        const formatted = d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+        el.textContent = `Data last refreshed: ${formatted}`;
+      } else {
+        el.textContent = "Data last refreshed: not yet recorded";
+      }
+    })
+    .catch(() => {
+      document.getElementById("last-refresh-note").textContent = "Data last refreshed: not yet recorded";
+    });
+
+  // Pre-assign colors for all taxa in stable alphabetical order
+  [...new Set(features.map(f => f.properties.taxon))].sort().forEach(getSpeciesColor);
+
+  buildTaxonList();
+  buildThemeChips();
+  buildGenusSelect();
+  buildCountySelect();
+  buildPlaceSelect();
+  buildBlmSelect();
+  buildUsfsSelect();
+  buildGrankSelect();
+  buildRegionSelects();
+  renderGeoStatsNote();
+  renderMarkers();
+
+  // ── Wire controls ──
+
+  document.getElementById("place-search").addEventListener("input", e => {
+    buildPlaceSearch(e.target.value);
+  });
+
+  document.getElementById("taxon-search").addEventListener("input", e => {
+    buildTaxonList(e.target.value);
+  });
+
+  wireChips("#endemism-chips .chip", state.endemism);
+  document.querySelectorAll("#endemism-chips .chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      buildTaxonList(document.getElementById("taxon-search").value);
+    });
+  });
+
+  // Simple/Advanced mode toggle. Checking it: reveals AND turns on the
+  // Non-endemic chip (matches the label's promise -- "show ... non-endemic
+  // taxa" is the direct effect of checking, not just an option to click
+  // separately), and reveals the BLM/USFS dropdowns (left at "All", not
+  // auto-filtered to anything). Unchecking: hides and turns off the
+  // Non-endemic chip, hides and clears BLM/USFS so no filter stays
+  // silently active behind hidden UI.
+  document.getElementById("advanced-mode-toggle").addEventListener("change", (e) => {
+    const advanced = e.target.checked;
+    const chip = document.getElementById("nonendemic-chip");
+    document.getElementById("nonendemic-note").style.display = advanced ? "block" : "none";
+    document.getElementById("advanced-status-group").style.display = advanced ? "block" : "none";
+    chip.style.display = advanced ? "" : "none";
+
+    if (advanced) {
+      chip.classList.add("on");
+      state.endemism.add("listed");
+    } else {
+      chip.classList.remove("on");
+      state.endemism.delete("listed");
+      state.blmStatus = "";
+      state.usfsStatus = "";
+      state.grank = "";
+      document.getElementById("blm-select").value = "";
+      document.getElementById("usfs-select").value = "";
+      document.getElementById("grank-select").value = "";
+    }
+    buildTaxonList(document.getElementById("taxon-search").value);
+    renderMarkers();
+  });
+
+  wireChips("[data-filter]", state.statusFilters);
+  wireChips("[data-grade]", state.grades);
+
+  document.getElementById("accuracy-select").addEventListener("change", (e) => {
+    state.maxAccuracyM = Number(e.target.value);
+    renderMarkers();
+  });
+  document.getElementById("exclude-obscured").addEventListener("change", (e) => {
+    state.excludeObscured = e.target.checked;
+    renderMarkers();
+  });
+
+  ["src-herbarium","src-inat"].forEach(id => {
+    const btn = document.getElementById(id);
+    const src = id === "src-herbarium" ? "herbarium" : "inat";
+    btn.addEventListener("click", () => {
+      if (state.sources.has(src)) {
+        state.sources.delete(src);
+        btn.classList.remove("on");
+      } else {
+        state.sources.add(src);
+        btn.classList.add("on");
+      }
+      renderMarkers();
+    });
+  });
+
+  document.getElementById("export-btn").addEventListener("click", exportFiltered);
+  document.getElementById("export-gpx-btn").addEventListener("click", exportFilteredGPX);
+  document.getElementById("draw-area-btn").addEventListener("click", () => {
+    if (drawingPoly) cancelAreaDraw(); else startAreaDraw();
+  });
+  document.getElementById("draw-box-btn").addEventListener("click", () => {
+    if (drawingBox) cancelBoxDraw(); else startBoxDraw();
+  });
+  document.getElementById("close-poly-btn").addEventListener("click", tryClosePolygon);
+  document.getElementById("clear-area-btn").addEventListener("click", clearAreaFilter);
+  document.getElementById("download-offline-map-btn").addEventListener("click", precacheTopoTiles);
+  document.getElementById("area-search-draw-btn").addEventListener("click", () => {
+    if (areaSearchDrawing) cancelAreaSearch(); else startAreaSearch();
+  });
+  document.getElementById("area-search-box-btn").addEventListener("click", () => {
+    if (areaSearchBoxDrawing) cancelAreaSearchBox(); else startAreaSearchBox();
+  });
+  document.getElementById("close-search-poly-btn").addEventListener("click", tryCloseAreaSearchPolygon);
+  document.getElementById("area-search-clear-btn").addEventListener("click", () => clearAreaSearchResults(true));
+  document.getElementById("area-search-export-geojson").addEventListener("click", exportAreaSearchGeoJSON);
+  document.getElementById("area-search-export-gpx").addEventListener("click", exportAreaSearchGPX);
+  document.getElementById("area-search-export-csv").addEventListener("click", exportAreaSearchCSV);
+  document.querySelectorAll(".area-src-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const src = btn.dataset.src;
+      if (areaSearchSources.has(src)) {
+        areaSearchSources.delete(src);
+        btn.classList.remove("on");
+      } else {
+        areaSearchSources.add(src);
+        btn.classList.add("on");
+      }
+    });
+  });
+  document.getElementById("export-csv-btn").addEventListener("click", exportFilteredCSV);
+
+  document.getElementById("clear-btn").addEventListener("click", () => {
+    const advanced = document.getElementById("advanced-mode-toggle").checked;
+    state.selectedTaxon = null;
+    state.endemism = new Set(["endemic","near-endemic","disjunct"]);
+    if (advanced) state.endemism.add("listed");
+    state.sources  = new Set(["herbarium","inat"]);
+    state.statusFilters = new Set(["esa","nv","unlisted"]);
+    state.grades   = new Set(["research","needs_id","casual"]);
+    state.genus    = "";
+    state.region   = "";
+    state.section  = "";
+    state.county   = "";
+    state.namedPlace = "";
+    state.blmStatus = "";
+    state.usfsStatus = "";
+    state.grank = "";
+    state.maxAccuracyM = 0;
+    state.excludeObscured = false;
+    document.querySelectorAll(".chip").forEach(c => c.classList.add("on"));
+    // The blanket line above would also turn the Non-endemic chip "on" even
+    // in Simple mode, where it should stay off (and hidden) -- correct that.
+    if (!advanced) document.getElementById("nonendemic-chip").classList.remove("on");
+    document.querySelectorAll(".src-btn").forEach(b => b.classList.add("on"));
+    document.getElementById("genus-select").value = "";
+    document.getElementById("region-select").value = "";
+    document.getElementById("section-select").value = "";
+    document.getElementById("county-select").value = "";
+    document.getElementById("place-select").value = "";
+    document.getElementById("blm-select").value = "";
+    document.getElementById("usfs-select").value = "";
+    document.getElementById("grank-select").value = "";
+    updateCountyHighlight();
+    updateRegionHighlight();
+    updatePlaceHighlight();
+    document.getElementById("accuracy-select").value = "0";
+    document.getElementById("exclude-obscured").checked = false;
+    document.getElementById("taxon-search").value = "";
+    buildTaxonList();
+    updateTaxonCard();
+    // Also clear the polygon area filter and any in-progress drawing
+    if (drawingPoly) cancelAreaDraw();
+    clearAreaFilter();
+    clearAreaSearchResults(true);
+    renderMarkers();
+  });
+
+  document.getElementById("toggle-panel-btn").addEventListener("click", () => {
+    document.getElementById("panel").classList.toggle("hidden");
+    document.getElementById("map").classList.toggle("full");
+    setTimeout(() => map.invalidateSize(), 300);
+  });
+
+  // Hide loading
+  document.getElementById("loading").style.display = "none";
+
+  // Offline base map is opt-in only — nothing downloads automatically.
+  // Just reflect current state on the button; the user triggers it
+  // themselves via the click listener below.
+  if (localStorage.getItem("nvTopoCacheDone") === TOPO_CACHE_VERSION) {
+    document.getElementById("download-offline-map-btn").textContent =
+      "✓ Offline Base Map Ready (click to re-check)";
+  }
+
+  if (usedDemo) {
+    // Show a notice about demo mode
+    const note = L.control({ position: "bottomleft" });
+    note.onAdd = () => {
+      const d = L.DomUtil.create("div");
+      d.style.cssText = "background:rgba(34,37,42,0.9);color:#c8a85a;padding:6px 10px;border-radius:4px;font-size:11px;border:1px solid #c8a85a;max-width:260px;";
+      d.innerHTML = "⚠ Demo mode — synthetic data shown.<br>Run <code>fetch_occurrences.py</code> to populate real records.";
+      return d;
+    };
+    note.addTo(map);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
