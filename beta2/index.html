@@ -583,6 +583,12 @@
       <input type="checkbox" id="advanced-mode-toggle" style="cursor:pointer;"/>
       Show advanced filters &amp; additional taxa (non-endemic, special-status, or rarity-ranked)
     </label>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:4px;margin-left:24px;">
+      (May take up to ~10 seconds to update with the full expanded dataset.)
+    </div>
+    <div id="advanced-toggle-status" style="display:none;font-size:11px;color:var(--accent2);margin-top:4px;margin-left:24px;">
+      Updating map…
+    </div>
   </div>
 
   <!-- Place name search -->
@@ -857,7 +863,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-19-v48-any-rank-filter-copy-fixes";
+const SCRIPT_VERSION = "2026-07-19-v49-advanced-toggle-loading-feedback";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -3291,8 +3297,22 @@ async function init() {
       document.getElementById("usfs-select").value = "";
       document.getElementById("grank-select").value = "";
     }
-    buildTaxonList(document.getElementById("taxon-search").value);
-    renderMarkers();
+
+    // Rebuilding the taxon list and re-rendering markers across the full
+    // dataset (tens of thousands of points once Advanced mode is on) can
+    // take several seconds -- long enough that someone might think their
+    // click didn't register and click again, silently undoing it. Show a
+    // status message immediately, then defer the actual heavy work by one
+    // tick so the browser has a chance to paint that message on screen
+    // before the blocking work starts (doing both in the same synchronous
+    // block would mean the message and the delay appear at the same time).
+    const statusEl = document.getElementById("advanced-toggle-status");
+    statusEl.style.display = "block";
+    setTimeout(() => {
+      buildTaxonList(document.getElementById("taxon-search").value);
+      renderMarkers();
+      statusEl.style.display = "none";
+    }, 20);
   });
 
   wireChips("[data-filter]", state.statusFilters);
