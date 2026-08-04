@@ -1,0 +1,11 @@
+# Python dependencies for the Nevada Endemic Plants data pipeline
+# (fetch_occurrences.py, patch_taxon.py, add_county.py, add_regions.py,
+# add_place_category.py, refresh_geo_pipeline.py)
+#
+# Install with:
+#   venv\Scripts\Activate.ps1
+#   pip install -r requirements.txt
+
+requests    # HTTP requests to GBIF and iNaturalist APIs
+tqdm        # progress bars during long fetches
+shapely     # point-in-polygon geometry (county/region/named-place tagging)

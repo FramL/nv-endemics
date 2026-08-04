@@ -1,4 +1,5 @@
 {
-  "date": "2026-06-22",
-  "note": "Manually set as a placeholder for the actual last full fetch; will be auto-overwritten by the next real fetch_occurrences.py run."
+  "date": "2026-08-03",
+  "taxa_count": 383,
+  "record_count": 28272
 }

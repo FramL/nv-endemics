@@ -10,7 +10,7 @@ plant taxa.
 Outputs: data/occurrences.geojson
 
 Requirements:
-    pip install requests pandas tqdm
+    pip install -r requirements.txt
 
 Usage:
     python fetch_occurrences.py                  # full run
@@ -64,6 +64,50 @@ INAT_BASE = "https://api.inaturalist.org/v1/observations"
 INAT_PLACE_ID = 50         # Nevada
 INAT_PER_PAGE = 200        # max allowed per request
 INAT_RATE_LIMIT = 1.0      # seconds between requests (be polite)
+
+# Retry transient server-side errors (5xx) a few times with a short pause
+# before giving up. Added after observing repeatable 503 "Backend fetch
+# failed" errors from GBIF for specific (valid, real) taxa -- a genuine
+# transient issue on GBIF's own infrastructure, not a problem with the
+# query itself. Does NOT retry 4xx errors (bad request, not found, etc.)
+# since those won't succeed no matter how many times you ask.
+RETRY_MAX_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 8  # multiplied by attempt number: 8s, 16s, 24s
+
+
+def request_with_retry(url, params, source_label, taxon_name):
+    """GET with retry-on-5xx. Returns a requests.Response on success, or
+    None if every attempt failed (caller should treat that as a fetch
+    failure, same as before this helper existed)."""
+    last_error = None
+    for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
+        try:
+            resp = requests.get(url, params=params, headers=REQUEST_HEADERS, timeout=30)
+            if resp.status_code >= 500:
+                last_error = f"{resp.status_code} Server Error"
+                if attempt < RETRY_MAX_ATTEMPTS:
+                    wait = RETRY_BACKOFF_SECONDS * attempt
+                    print(f"  [{source_label}] {last_error} for {taxon_name} "
+                          f"(attempt {attempt}/{RETRY_MAX_ATTEMPTS}), retrying in {wait}s...",
+                          file=sys.stderr)
+                    time.sleep(wait)
+                    continue
+                break
+            resp.raise_for_status()
+            return resp
+        except requests.RequestException as e:
+            last_error = str(e)
+            if attempt < RETRY_MAX_ATTEMPTS:
+                wait = RETRY_BACKOFF_SECONDS * attempt
+                print(f"  [{source_label}] Error for {taxon_name}: {e} "
+                      f"(attempt {attempt}/{RETRY_MAX_ATTEMPTS}), retrying in {wait}s...",
+                      file=sys.stderr)
+                time.sleep(wait)
+                continue
+            break
+    print(f"  [{source_label}] Giving up on {taxon_name} after {RETRY_MAX_ATTEMPTS} attempts: {last_error}",
+          file=sys.stderr)
+    return None
 
 # GBIF rate limit (GBIF has no strict published limit for this volume, but
 # being polite avoids any throttling)
@@ -120,13 +164,11 @@ def fetch_gbif(taxon_name: str) -> list[dict]:
             "limit": limit,
             "offset": offset,
         }
-        try:
-            resp = requests.get(GBIF_BASE, params=params, headers=REQUEST_HEADERS, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.RequestException as e:
-            print(f"  [GBIF] Error for {taxon_name}: {e}", file=sys.stderr)
+        resp = request_with_retry(GBIF_BASE, params, "GBIF", taxon_name)
+        if resp is None:
             break
+        try:
+            data = resp.json()
         except json.JSONDecodeError:
             print(f"  [GBIF] Bad JSON for {taxon_name}", file=sys.stderr)
             break
@@ -212,13 +254,11 @@ def fetch_inat(taxon_name: str, research_grade_only: bool = False) -> list[dict]
         if quality_grade:
             params["quality_grade"] = quality_grade
 
-        try:
-            resp = requests.get(INAT_BASE, params=params, headers=REQUEST_HEADERS, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.RequestException as e:
-            print(f"  [iNat] Error for {taxon_name}: {e}", file=sys.stderr)
+        resp = request_with_retry(INAT_BASE, params, "iNat", taxon_name)
+        if resp is None:
             break
+        try:
+            data = resp.json()
         except json.JSONDecodeError:
             print(f"  [iNat] Bad JSON for {taxon_name}", file=sys.stderr)
             break
@@ -337,6 +377,8 @@ def main():
             "endemism_category": row.get("endemism_category", "endemic"),
             "esa_status": row.get("esa_status", ""),
             "nv_state_status": row.get("nv_state_status", ""),
+            "blm_status": row.get("blm_status", ""),
+            "usfs_status": row.get("usfs_status", ""),
             "book_thematic_category": row.get("book_thematic_category", ""),
             "physiographic_region": row.get("physiographic_region", ""),
             "physiographic_section": row.get("physiographic_section", ""),
@@ -353,6 +395,8 @@ def main():
                     "endemism_category": row.get("endemism_category", "endemic"),
                     "esa_status": row.get("esa_status", ""),
                     "nv_state_status": row.get("nv_state_status", ""),
+                    "blm_status": row.get("blm_status", ""),
+                    "usfs_status": row.get("usfs_status", ""),
                     "book_thematic_category": row.get("book_thematic_category", ""),
                     "physiographic_region": row.get("physiographic_region", ""),
                     "physiographic_section": row.get("physiographic_section", ""),
@@ -371,6 +415,8 @@ def main():
                     "endemism_category": row.get("endemism_category", "endemic"),
                     "esa_status": row.get("esa_status", ""),
                     "nv_state_status": row.get("nv_state_status", ""),
+                    "blm_status": row.get("blm_status", ""),
+                    "usfs_status": row.get("usfs_status", ""),
                     "book_thematic_category": row.get("book_thematic_category", ""),
                     "physiographic_region": row.get("physiographic_region", ""),
                     "physiographic_section": row.get("physiographic_section", ""),
