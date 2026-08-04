@@ -583,6 +583,12 @@
       <input type="checkbox" id="advanced-mode-toggle" style="cursor:pointer;"/>
       Show advanced filters &amp; non-endemic special-status taxa
     </label>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:4px;margin-left:24px;">
+      (May take a few seconds to update.)
+    </div>
+    <div id="advanced-toggle-status" style="display:none;font-size:11px;color:var(--accent2);margin-top:4px;margin-left:24px;">
+      Updating map…
+    </div>
   </div>
 
   <!-- Place name search -->
@@ -852,7 +858,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-18-v46-copy-fixes";
+const SCRIPT_VERSION = "2026-07-19-v46.1-loading-feedback";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -3255,8 +3261,20 @@ async function init() {
       document.getElementById("blm-select").value = "";
       document.getElementById("usfs-select").value = "";
     }
-    buildTaxonList(document.getElementById("taxon-search").value);
-    renderMarkers();
+
+    // Rebuilding the taxon list and re-rendering markers can take a few
+    // seconds -- long enough that someone might think their click didn't
+    // register and click again, silently undoing it. Show a status message
+    // immediately, then defer the actual heavy work by one tick so the
+    // browser has a chance to paint that message before the blocking work
+    // starts.
+    const statusEl = document.getElementById("advanced-toggle-status");
+    statusEl.style.display = "block";
+    setTimeout(() => {
+      buildTaxonList(document.getElementById("taxon-search").value);
+      renderMarkers();
+      statusEl.style.display = "none";
+    }, 20);
   });
 
   wireChips("[data-filter]", state.statusFilters);
