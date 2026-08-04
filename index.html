@@ -577,14 +577,6 @@
 <!-- Filter Panel -->
 <div id="panel">
 
-  <!-- Simple/Advanced mode toggle -->
-  <div class="panel-section" style="border-bottom:1px solid var(--accent2);">
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text);">
-      <input type="checkbox" id="advanced-mode-toggle" style="cursor:pointer;"/>
-      Show advanced filters &amp; non-endemic special-status taxa
-    </label>
-  </div>
-
   <!-- Place name search -->
   <div class="panel-section">
     <h2>Go to Place</h2>
@@ -624,10 +616,6 @@
       <button class="chip on" data-val="endemic">Endemic</button>
       <button class="chip on" data-val="near-endemic">Near-endemic</button>
       <button class="chip on" data-val="disjunct">Disjunct</button>
-      <button class="chip" data-val="listed" id="nonendemic-chip" style="display:none;">Non-endemic</button>
-    </div>
-    <div id="nonendemic-note" style="display:none;font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
-      "Non-endemic" = officially BLM/USFS/ESA/NV special-status per the Nevada Division of Natural Heritage, but not a narrow Nevada endemic — independent of the other three. Conservation status (ESA/NV/BLM/USFS below) applies regardless of endemism; a taxon can be Endemic <em>and</em> ESA-listed.
     </div>
   </div>
 
@@ -653,21 +641,6 @@
       <button class="chip esa on" data-filter="esa">ESA Listed</button>
       <button class="chip nv on"  data-filter="nv">NV Protected</button>
       <button class="chip on" data-filter="unlisted">Unlisted</button>
-    </div>
-    <div id="blm-usfs-group" style="display:none;">
-      <div style="margin-top:10px;">
-        <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">BLM Status</label>
-        <select id="blm-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:8px;">
-          <option value="">All / unlisted</option>
-        </select>
-        <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">USFS Status</label>
-        <select id="usfs-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
-          <option value="">All / unlisted</option>
-        </select>
-      </div>
-      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;line-height:1.4;">
-        Per the Nevada Division of Natural Heritage. Both are taxon-level statuses, same as ESA/NV above — and independent of endemism, so these apply to Endemic/Near-endemic/Disjunct taxa too, not just Non-endemic ones.
-      </div>
     </div>
   </div>
 
@@ -852,7 +825,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-18-v46-copy-fixes";
+const SCRIPT_VERSION = "2026-07-17-v43-area-search-caveat";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -1023,7 +996,7 @@ let colorIndex = 0;
 // Filter state
 const state = {
   selectedTaxon: null,
-  endemism: new Set(["endemic","near-endemic","disjunct"]),  // "listed" (non-endemic) starts off -- Simple mode default
+  endemism: new Set(["endemic","near-endemic","disjunct"]),
   sources: new Set(["herbarium","inat"]),
   statusFilters: new Set(["esa","nv","unlisted"]),
   grades: new Set(["research","needs_id","casual"]),
@@ -1032,8 +1005,6 @@ const state = {
   section: "",
   county: "",
   namedPlace: "",
-  blmStatus: "",
-  usfsStatus: "",
   maxAccuracyM: 0,         // 0 = no filter; otherwise max allowed positional_accuracy_m
   excludeObscured: false,
   themes: new Set(),  // populated from data
@@ -1346,10 +1317,6 @@ function featureVisible(f) {
   // NWR), not the whole state. named_place === null is the normal case for
   // most points (not near any tracked place), not an error.
   if (state.namedPlace && p.named_place !== state.namedPlace) return false;
-
-  // BLM/USFS status -- taxon-level, same as ESA/NV state status above.
-  if (state.blmStatus && p.blm_status !== state.blmStatus) return false;
-  if (state.usfsStatus && p.usfs_status !== state.usfsStatus) return false;
 
   // Point-level area filter (the draw-polygon tool) — checks whether this
   // specific occurrence falls inside the user-drawn polygon.
@@ -2320,18 +2287,7 @@ document.addEventListener("click", (e) => {
 // ============================================================
 
 function buildTaxonList(filter = "") {
-  // Only list taxa whose endemism_category is currently enabled -- otherwise
-  // Simple mode users could search for and select a non-endemic taxon that's
-  // filtered off the map, seeing nothing happen with no explanation why.
-  const endemismByTaxon = new Map();
-  allFeatures.forEach(f => {
-    if (!endemismByTaxon.has(f.properties.taxon)) {
-      endemismByTaxon.set(f.properties.taxon, f.properties.endemism_category || "endemic");
-    }
-  });
-  const taxonNames = [...endemismByTaxon.keys()]
-    .filter(name => state.endemism.has(endemismByTaxon.get(name)))
-    .sort();
+  const taxonNames = [...new Set(allFeatures.map(f => f.properties.taxon))].sort();
   const filtered = filter
     ? taxonNames.filter(n => n.toLowerCase().includes(filter.toLowerCase()))
     : taxonNames;
@@ -2550,38 +2506,6 @@ function buildPlaceSelect() {
   sel.addEventListener("change", () => {
     state.namedPlace = sel.value;
     updatePlaceHighlight();
-    renderMarkers();
-  });
-}
-
-// ============================================================
-// BLM / USFS STATUS SELECTS
-// ============================================================
-
-function buildBlmSelect() {
-  const vals = [...new Set(allFeatures.map(f => f.properties.blm_status || "").filter(Boolean))].sort();
-  const sel = document.getElementById("blm-select");
-  vals.forEach(v => {
-    const opt = document.createElement("option");
-    opt.value = v; opt.textContent = v;
-    sel.appendChild(opt);
-  });
-  sel.addEventListener("change", () => {
-    state.blmStatus = sel.value;
-    renderMarkers();
-  });
-}
-
-function buildUsfsSelect() {
-  const vals = [...new Set(allFeatures.map(f => f.properties.usfs_status || "").filter(Boolean))].sort();
-  const sel = document.getElementById("usfs-select");
-  vals.forEach(v => {
-    const opt = document.createElement("option");
-    opt.value = v; opt.textContent = v;
-    sel.appendChild(opt);
-  });
-  sel.addEventListener("change", () => {
-    state.usfsStatus = sel.value;
     renderMarkers();
   });
 }
@@ -3207,8 +3131,6 @@ async function init() {
   buildGenusSelect();
   buildCountySelect();
   buildPlaceSelect();
-  buildBlmSelect();
-  buildUsfsSelect();
   buildRegionSelects();
   renderGeoStatsNote();
   renderMarkers();
@@ -3224,41 +3146,6 @@ async function init() {
   });
 
   wireChips("#endemism-chips .chip", state.endemism);
-  document.querySelectorAll("#endemism-chips .chip").forEach(btn => {
-    btn.addEventListener("click", () => {
-      buildTaxonList(document.getElementById("taxon-search").value);
-    });
-  });
-
-  // Simple/Advanced mode toggle. Checking it: reveals AND turns on the
-  // Non-endemic chip (matches the label's promise -- "show ... non-endemic
-  // taxa" is the direct effect of checking, not just an option to click
-  // separately), and reveals the BLM/USFS dropdowns (left at "All", not
-  // auto-filtered to anything). Unchecking: hides and turns off the
-  // Non-endemic chip, hides and clears BLM/USFS so no filter stays
-  // silently active behind hidden UI.
-  document.getElementById("advanced-mode-toggle").addEventListener("change", (e) => {
-    const advanced = e.target.checked;
-    const chip = document.getElementById("nonendemic-chip");
-    document.getElementById("nonendemic-note").style.display = advanced ? "block" : "none";
-    document.getElementById("blm-usfs-group").style.display = advanced ? "block" : "none";
-    chip.style.display = advanced ? "" : "none";
-
-    if (advanced) {
-      chip.classList.add("on");
-      state.endemism.add("listed");
-    } else {
-      chip.classList.remove("on");
-      state.endemism.delete("listed");
-      state.blmStatus = "";
-      state.usfsStatus = "";
-      document.getElementById("blm-select").value = "";
-      document.getElementById("usfs-select").value = "";
-    }
-    buildTaxonList(document.getElementById("taxon-search").value);
-    renderMarkers();
-  });
-
   wireChips("[data-filter]", state.statusFilters);
   wireChips("[data-grade]", state.grades);
 
@@ -3323,10 +3210,8 @@ async function init() {
   document.getElementById("export-csv-btn").addEventListener("click", exportFilteredCSV);
 
   document.getElementById("clear-btn").addEventListener("click", () => {
-    const advanced = document.getElementById("advanced-mode-toggle").checked;
     state.selectedTaxon = null;
     state.endemism = new Set(["endemic","near-endemic","disjunct"]);
-    if (advanced) state.endemism.add("listed");
     state.sources  = new Set(["herbarium","inat"]);
     state.statusFilters = new Set(["esa","nv","unlisted"]);
     state.grades   = new Set(["research","needs_id","casual"]);
@@ -3335,22 +3220,15 @@ async function init() {
     state.section  = "";
     state.county   = "";
     state.namedPlace = "";
-    state.blmStatus = "";
-    state.usfsStatus = "";
     state.maxAccuracyM = 0;
     state.excludeObscured = false;
     document.querySelectorAll(".chip").forEach(c => c.classList.add("on"));
-    // The blanket line above would also turn the Non-endemic chip "on" even
-    // in Simple mode, where it should stay off (and hidden) -- correct that.
-    if (!advanced) document.getElementById("nonendemic-chip").classList.remove("on");
     document.querySelectorAll(".src-btn").forEach(b => b.classList.add("on"));
     document.getElementById("genus-select").value = "";
     document.getElementById("region-select").value = "";
     document.getElementById("section-select").value = "";
     document.getElementById("county-select").value = "";
     document.getElementById("place-select").value = "";
-    document.getElementById("blm-select").value = "";
-    document.getElementById("usfs-select").value = "";
     updateCountyHighlight();
     updateRegionHighlight();
     updatePlaceHighlight();
