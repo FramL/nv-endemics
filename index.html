@@ -577,11 +577,15 @@
 <!-- Filter Panel -->
 <div id="panel">
 
-  <!-- Place name search -->
-  <div class="panel-section">
-    <h2>Go to Place</h2>
-    <input type="text" id="place-search" placeholder="Mountain range, valley, park…" autocomplete="off"/>
-    <ul id="place-list"></ul>
+  <!-- Simple/Advanced mode toggle -->
+  <div class="panel-section" style="border-bottom:1px solid var(--accent2);">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text);">
+      <input type="checkbox" id="advanced-mode-toggle" style="cursor:pointer;"/>
+      Show advanced filters &amp; additional taxa (non-endemic, special-status, or rarity-ranked)
+    </label>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:4px;margin-left:24px;">
+      (May take up to ~10 seconds to update with the full expanded dataset.)
+    </div>
   </div>
 
   <!-- Area filter — draw a polygon or box on the map; only points inside
@@ -606,6 +610,22 @@
     <ul id="taxon-list"></ul>
   </div>
 
+  <!-- Exclude specific taxa -- useful for hiding a common/cluttering species
+       that technically qualifies under some filter (e.g. Artemisia tridentata,
+       Nevada's state emblem, showing up under Non-endemic special-status even
+       though it's neither rare nor interesting to see plotted thousands of
+       times). Matches by genus or full species name, comma-separated for
+       more than one. Independent of every other filter -- always applies,
+       in Simple or Advanced mode alike. -->
+  <div class="panel-section">
+    <h2>Exclude Taxa</h2>
+    <input type="text" id="exclude-taxa-input" placeholder="e.g. Artemisia tridentata (comma-separated for several)" autocomplete="off"/>
+    <div id="exclude-taxa-confirm" style="display:none;font-size:10px;color:var(--accent2);margin-top:5px;line-height:1.4;"></div>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+      Hides matching taxa from the map regardless of any other filter. Matches by genus or full species name (case-insensitive, partial match) — e.g. "Artemisia" excludes the whole genus, "Artemisia tridentata" excludes just that species. Separate several with commas, e.g. "Artemisia tridentata, Bromus tectorum".
+    </div>
+  </div>
+
   <!-- Taxon info card (shown when a taxon is selected) -->
   <div id="taxon-card"></div>
 
@@ -616,6 +636,10 @@
       <button class="chip on" data-val="endemic">Endemic</button>
       <button class="chip on" data-val="near-endemic">Near-endemic</button>
       <button class="chip on" data-val="disjunct">Disjunct</button>
+      <button class="chip" data-val="listed" id="nonendemic-chip" style="display:none;">Non-endemic</button>
+    </div>
+    <div id="nonendemic-note" style="display:none;font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+      "Non-endemic" = officially BLM/USFS/ESA/NV special-status per the Nevada Division of Natural Heritage, or tracked on NDNH's watchlist and ranked for rarity by NatureServe — but not a narrow Nevada endemic. Independent of the other three, and independent of Conservation Status/Rarity Rank below; a taxon can be Endemic <em>and</em> ESA-listed, or Non-endemic with no rank at all.
     </div>
   </div>
 
@@ -641,6 +665,26 @@
       <button class="chip esa on" data-filter="esa">ESA Listed</button>
       <button class="chip nv on"  data-filter="nv">NV Protected</button>
       <button class="chip on" data-filter="unlisted">Unlisted</button>
+    </div>
+    <div id="advanced-status-group" style="display:none;">
+      <div style="margin-top:10px;">
+        <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">BLM Status</label>
+        <select id="blm-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:8px;">
+          <option value="">All / unlisted</option>
+        </select>
+        <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">USFS Status</label>
+        <select id="usfs-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;margin-bottom:8px;">
+          <option value="">All / unlisted</option>
+        </select>
+        <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">NatureServe Rarity Rank</label>
+        <select id="grank-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+          <option value="">All / unranked</option>
+          <option value="ANY">Any rank (G1–G5, regardless of which)</option>
+        </select>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;line-height:1.4;">
+        Per the Nevada Division of Natural Heritage. All three are taxon-level statuses, same as ESA/NV above — and independent of endemism, so these apply to Endemic/Near-endemic/Disjunct taxa too, not just Non-endemic ones. NatureServe Rarity Rank is a scientific rarity assessment (G1 = Critically Imperiled globally, through G5 = Secure) — a different kind of thing from BLM/USFS/ESA/NV, which are legal designations.
+      </div>
     </div>
   </div>
 
@@ -688,12 +732,28 @@
     </div>
   </div>
 
+  <!-- Go to Place — a general navigation shortcut, not a precise filter.
+       Positioned directly under Geographic Filters (visually connected, but
+       intentionally de-emphasized) since it's easy to confuse with the exact
+       boundary-based filters above it, but works very differently: it just
+       centers/zooms the map on a named place's approximate centroid. -->
+  <div style="margin:0 12px 10px;border:1px solid var(--panel-border);border-top:none;border-radius:0 0 6px 6px;">
+    <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);padding:5px 14px;border-top:1px dashed var(--panel-border);">Go to Place (general navigation, not a filter)</div>
+    <div class="panel-section" style="border-bottom:none;">
+      <input type="text" id="place-search" placeholder="Mountain range, valley, park…" autocomplete="off"/>
+      <ul id="place-list"></ul>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
+        Jumps the map to an approximate centroid for a named place — not an exact boundary, and several locations can share similar names. Useful for general orientation, not for precise filtering (use Geographic Filters above for that).
+      </div>
+    </div>
+  </div>
+
   <!-- Book thematic category -->
   <div class="panel-section">
     <h2>Book Category <span style="font-weight:400;text-transform:none;color:var(--text-dim);">(taxon-level, from the book)</span></h2>
-    <div class="chip-group" id="theme-chips">
-      <!-- populated dynamically from data -->
-    </div>
+    <select id="theme-select" style="width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);border-radius:4px;font-size:12px;">
+      <option value="">All categories</option>
+    </select>
     <div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.4;">
       Habitat/distribution descriptors (Cliff-dwelling, Disjunct, Foothills, etc.) — these describe a pattern, not a checkable location, so they stay taxon-level. For an actual place like Ash Meadows, use the Named Place filter above instead — it checks real coordinates, this doesn't.
     </div>
@@ -818,6 +878,15 @@
 
 <!-- Map -->
 <div id="map"></div>
+<div id="map-loading-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:2500;align-items:center;justify-content:center;pointer-events:none;">
+  <div style="background:rgba(26,28,30,0.92);border:1px solid var(--accent2);border-radius:10px;padding:22px 36px;display:flex;align-items:center;gap:14px;box-shadow:0 6px 24px rgba(0,0,0,0.5);">
+    <div style="width:22px;height:22px;border:3px solid var(--panel-border);border-top-color:var(--accent2);border-radius:50%;animation:map-loading-spin 0.8s linear infinite;"></div>
+    <span style="font-size:16px;font-weight:600;color:var(--text-bright);">Updating map…</span>
+  </div>
+</div>
+<style>
+  @keyframes map-loading-spin { to { transform: rotate(360deg); } }
+</style>
 
 <script>
 // ============================================================
@@ -825,7 +894,7 @@
 // ============================================================
 // Bump this string whenever index.html changes, so a glance at the
 // browser console confirms which version actually loaded.
-const SCRIPT_VERSION = "2026-07-17-v43-area-search-caveat";
+const SCRIPT_VERSION = "2026-09-20-v51-book-category-disjunct-removed-exclude-confirm";
 console.log(`index.html version: ${SCRIPT_VERSION}`);
 
 // ============================================================
@@ -996,7 +1065,7 @@ let colorIndex = 0;
 // Filter state
 const state = {
   selectedTaxon: null,
-  endemism: new Set(["endemic","near-endemic","disjunct"]),
+  endemism: new Set(["endemic","near-endemic","disjunct"]),  // "listed" (non-endemic) starts off -- Simple mode default
   sources: new Set(["herbarium","inat"]),
   statusFilters: new Set(["esa","nv","unlisted"]),
   grades: new Set(["research","needs_id","casual"]),
@@ -1005,9 +1074,13 @@ const state = {
   section: "",
   county: "",
   namedPlace: "",
+  blmStatus: "",
+  usfsStatus: "",
+  grank: "",
   maxAccuracyM: 0,         // 0 = no filter; otherwise max allowed positional_accuracy_m
   excludeObscured: false,
-  themes: new Set(),  // populated from data
+  theme: "",  // "" = all categories; single value now, not a multi-select Set
+  excludeTaxa: [],  // lowercase substrings; a taxon matching ANY of these is hidden
   areaPolygon: null,  // array of [lat,lon] pairs | null — set by the draw-polygon area filter
 };
 
@@ -1318,6 +1391,15 @@ function featureVisible(f) {
   // most points (not near any tracked place), not an error.
   if (state.namedPlace && p.named_place !== state.namedPlace) return false;
 
+  // BLM/USFS status -- taxon-level, same as ESA/NV state status above.
+  if (state.blmStatus && p.blm_status !== state.blmStatus) return false;
+  if (state.usfsStatus && p.usfs_status !== state.usfsStatus) return false;
+  if (state.grank === "ANY") {
+    if (!p.natureserve_grank) return false;
+  } else if (state.grank && p.natureserve_grank !== state.grank) {
+    return false;
+  }
+
   // Point-level area filter (the draw-polygon tool) — checks whether this
   // specific occurrence falls inside the user-drawn polygon.
   if (state.areaPolygon && !pointInPolygon(
@@ -1350,8 +1432,14 @@ function featureVisible(f) {
   }
 
   // book theme filter
-  const theme = p.book_thematic_category || "";
-  if (!state.themes.has(theme)) return false;
+  if (state.theme && (p.book_thematic_category || "") !== state.theme) return false;
+
+  // Exclude taxa -- applies regardless of any other filter, Simple or
+  // Advanced mode alike.
+  if (state.excludeTaxa.length) {
+    const taxonLower = (p.taxon || "").toLowerCase();
+    if (state.excludeTaxa.some(term => taxonLower.includes(term))) return false;
+  }
 
   return true;
 }
@@ -2208,7 +2296,11 @@ function clearAreaSearchResults(resetButton = true) {
   }
 }
 
-function renderMarkers() {
+// The actual heavy work: clears and rebuilds all markers/clusters from
+// scratch, checking every feature against every active filter. Called
+// directly (no overlay) only during initial page load; every other call
+// site should use renderMarkers() below instead.
+function renderMarkersNow() {
   clusterGroup.clearLayers();
   markersByFeature.clear();
   let count = 0;
@@ -2239,6 +2331,38 @@ function renderMarkers() {
   if (document.getElementById("taxa-dropdown").classList.contains("open")) {
     renderTaxaDropdown();
   }
+}
+
+// ============================================================
+// CENTRALIZED "UPDATING MAP" LOADING OVERLAY
+// ============================================================
+// With the full dataset (72,000+ points), re-filtering and rebuilding
+// markers can take several seconds -- long enough that someone might think
+// a click didn't register and try again, silently undoing it. Every filter
+// control on the page (chips, dropdowns, Clear Filters, Data Source
+// buttons, etc.) triggers this same large, centrally-placed overlay rather
+// than each having its own small status message -- one consistent,
+// noticeable place to look, regardless of which control was used.
+
+function showMapLoading() {
+  document.getElementById("map-loading-overlay").style.display = "flex";
+}
+function hideMapLoading() {
+  document.getElementById("map-loading-overlay").style.display = "none";
+}
+
+// This is what every filter control actually calls. It shows the overlay,
+// then defers the real work (renderMarkersNow) by one tick -- doing both
+// in the same synchronous block would mean the browser never gets a chance
+// to paint the overlay before the heavy work starts blocking it, so the
+// message and the delay would appear to happen at the same instant instead
+// of the message appearing first.
+function renderMarkers() {
+  showMapLoading();
+  setTimeout(() => {
+    renderMarkersNow();
+    hideMapLoading();
+  }, 20);
 }
 
 // ============================================================
@@ -2287,7 +2411,18 @@ document.addEventListener("click", (e) => {
 // ============================================================
 
 function buildTaxonList(filter = "") {
-  const taxonNames = [...new Set(allFeatures.map(f => f.properties.taxon))].sort();
+  // Only list taxa whose endemism_category is currently enabled -- otherwise
+  // Simple mode users could search for and select a non-endemic taxon that's
+  // filtered off the map, seeing nothing happen with no explanation why.
+  const endemismByTaxon = new Map();
+  allFeatures.forEach(f => {
+    if (!endemismByTaxon.has(f.properties.taxon)) {
+      endemismByTaxon.set(f.properties.taxon, f.properties.endemism_category || "endemic");
+    }
+  });
+  const taxonNames = [...endemismByTaxon.keys()]
+    .filter(name => state.endemism.has(endemismByTaxon.get(name)))
+    .sort();
   const filtered = filter
     ? taxonNames.filter(n => n.toLowerCase().includes(filter.toLowerCase()))
     : taxonNames;
@@ -2374,61 +2509,30 @@ function fitToTaxon(taxon) {
 // THEME CHIPS (dynamic)
 // ============================================================
 
-function buildThemeChips() {
-  const themes = new Set(
+function buildThemeSelect() {
+  // Single-select dropdown, same pattern as County/Region/BLM/USFS/G-rank --
+  // replaces the old multi-toggle chip group, which had confusing behavior
+  // (started at "everything on", so clicking one category looked like it
+  // was turning things off rather than narrowing to just that one). A
+  // dropdown makes "pick one category" the only possible interaction.
+  // "Disjunct" is excluded here -- it's also one of the Endemism Category
+  // values, computed from Tiehm & Nachlinger's own endemism classification,
+  // which is the more accurate source for it. This book_thematic_category
+  // version is a separate, less precise book-derived tag for the same
+  // concept; keeping both around as selectable options is redundant and
+  // the less-accurate one shouldn't be the one people reach for.
+  const themes = [...new Set(
     allFeatures.map(f => f.properties.book_thematic_category || "").filter(Boolean)
-  );
-  state.themes = new Set([...themes, ""]);  // "" = uncategorized
-
-  const container = document.getElementById("theme-chips");
-  container.innerHTML = "";
-
-  const allBtn = document.createElement("button");
-  allBtn.className = "chip on";
-  allBtn.textContent = "All";
-
-  // Reflects current state on the "All" chip: lit only when every individual
-  // theme chip is also on. Called after every individual toggle so "All"
-  // never gets stuck showing a state that doesn't match reality.
-  function syncAllButton() {
-    const allThemeBtns = container.querySelectorAll(".chip[data-theme]");
-    const allOn = [...allThemeBtns].every(b => b.classList.contains("on"));
-    allBtn.classList.toggle("on", allOn);
-  }
-
-  allBtn.addEventListener("click", () => {
-    // True toggle: if everything is currently on, turn everything off;
-    // otherwise (anything off, or a mixed state), turn everything on.
-    // This matches the intuitive expectation of a master switch.
-    const turningOn = !allBtn.classList.contains("on");
-    if (turningOn) {
-      state.themes = new Set([...themes, ""]);
-    } else {
-      state.themes = new Set();
-    }
-    container.querySelectorAll(".chip[data-theme]").forEach(c => c.classList.toggle("on", turningOn));
-    allBtn.classList.toggle("on", turningOn);
-    renderMarkers();
+  )].filter(t => t !== "Disjunct").sort();
+  const sel = document.getElementById("theme-select");
+  themes.forEach(theme => {
+    const opt = document.createElement("option");
+    opt.value = theme; opt.textContent = theme;
+    sel.appendChild(opt);
   });
-  container.appendChild(allBtn);
-
-  [...themes].sort().forEach(theme => {
-    const btn = document.createElement("button");
-    btn.className = "chip on";
-    btn.textContent = theme || "(uncategorized)";
-    btn.dataset.theme = theme;
-    btn.addEventListener("click", () => {
-      if (state.themes.has(theme)) {
-        state.themes.delete(theme);
-        btn.classList.remove("on");
-      } else {
-        state.themes.add(theme);
-        btn.classList.add("on");
-      }
-      syncAllButton();
-      renderMarkers();
-    });
-    container.appendChild(btn);
+  sel.addEventListener("change", () => {
+    state.theme = sel.value;
+    renderMarkers();
   });
 }
 
@@ -2506,6 +2610,60 @@ function buildPlaceSelect() {
   sel.addEventListener("change", () => {
     state.namedPlace = sel.value;
     updatePlaceHighlight();
+    renderMarkers();
+  });
+}
+
+// ============================================================
+// BLM / USFS STATUS SELECTS
+// ============================================================
+
+function buildBlmSelect() {
+  const vals = [...new Set(allFeatures.map(f => f.properties.blm_status || "").filter(Boolean))].sort();
+  const sel = document.getElementById("blm-select");
+  vals.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = v;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.blmStatus = sel.value;
+    renderMarkers();
+  });
+}
+
+function buildUsfsSelect() {
+  const vals = [...new Set(allFeatures.map(f => f.properties.usfs_status || "").filter(Boolean))].sort();
+  const sel = document.getElementById("usfs-select");
+  vals.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = v;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.usfsStatus = sel.value;
+    renderMarkers();
+  });
+}
+
+const GRANK_LABELS = {
+  G1: "G1 — Critically Imperiled",
+  G2: "G2 — Imperiled",
+  G3: "G3 — Vulnerable",
+  G4: "G4 — Apparently Secure",
+  G5: "G5 — Secure",
+};
+
+function buildGrankSelect() {
+  const vals = [...new Set(allFeatures.map(f => f.properties.natureserve_grank || "").filter(Boolean))].sort();
+  const sel = document.getElementById("grank-select");
+  vals.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = GRANK_LABELS[v] || v;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    state.grank = sel.value;
     renderMarkers();
   });
 }
@@ -3127,13 +3285,16 @@ async function init() {
   [...new Set(features.map(f => f.properties.taxon))].sort().forEach(getSpeciesColor);
 
   buildTaxonList();
-  buildThemeChips();
+  buildThemeSelect();
   buildGenusSelect();
   buildCountySelect();
   buildPlaceSelect();
+  buildBlmSelect();
+  buildUsfsSelect();
+  buildGrankSelect();
   buildRegionSelects();
   renderGeoStatsNote();
-  renderMarkers();
+  renderMarkersNow();  // direct, not renderMarkers() -- skip the overlay on initial load
 
   // ── Wire controls ──
 
@@ -3146,8 +3307,72 @@ async function init() {
   });
 
   wireChips("#endemism-chips .chip", state.endemism);
+  document.querySelectorAll("#endemism-chips .chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      buildTaxonList(document.getElementById("taxon-search").value);
+    });
+  });
+
+  // Simple/Advanced mode toggle. Checking it: reveals AND turns on the
+  // Non-endemic chip (matches the label's promise -- "show ... non-endemic
+  // taxa" is the direct effect of checking, not just an option to click
+  // separately), and reveals the BLM/USFS dropdowns (left at "All", not
+  // auto-filtered to anything). Unchecking: hides and turns off the
+  // Non-endemic chip, hides and clears BLM/USFS so no filter stays
+  // silently active behind hidden UI.
+  document.getElementById("advanced-mode-toggle").addEventListener("change", (e) => {
+    const advanced = e.target.checked;
+    const chip = document.getElementById("nonendemic-chip");
+    document.getElementById("nonendemic-note").style.display = advanced ? "block" : "none";
+    document.getElementById("advanced-status-group").style.display = advanced ? "block" : "none";
+    chip.style.display = advanced ? "" : "none";
+
+    if (advanced) {
+      chip.classList.add("on");
+      state.endemism.add("listed");
+    } else {
+      chip.classList.remove("on");
+      state.endemism.delete("listed");
+      state.blmStatus = "";
+      state.usfsStatus = "";
+      state.grank = "";
+      document.getElementById("blm-select").value = "";
+      document.getElementById("usfs-select").value = "";
+      document.getElementById("grank-select").value = "";
+    }
+
+    // Rebuilding the taxon list AND re-rendering markers across the full
+    // dataset can both take a while -- called directly here (not via the
+    // renderMarkers() wrapper) so the centralized overlay covers both
+    // operations as one continuous "updating" period, not two separate ones.
+    showMapLoading();
+    setTimeout(() => {
+      buildTaxonList(document.getElementById("taxon-search").value);
+      renderMarkersNow();
+      hideMapLoading();
+    }, 20);
+  });
+
   wireChips("[data-filter]", state.statusFilters);
   wireChips("[data-grade]", state.grades);
+
+  function applyExcludeTaxa() {
+    const raw = document.getElementById("exclude-taxa-input").value;
+    state.excludeTaxa = raw.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+    const confirmEl = document.getElementById("exclude-taxa-confirm");
+    if (state.excludeTaxa.length) {
+      const label = state.excludeTaxa.length === 1 ? "term" : "terms";
+      confirmEl.textContent = `Excluding ${state.excludeTaxa.length} ${label}: ${state.excludeTaxa.join(", ")}`;
+      confirmEl.style.display = "block";
+    } else {
+      confirmEl.style.display = "none";
+    }
+    renderMarkers();
+  }
+  document.getElementById("exclude-taxa-input").addEventListener("change", applyExcludeTaxa);
+  document.getElementById("exclude-taxa-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.target.blur(); applyExcludeTaxa(); }
+  });
 
   document.getElementById("accuracy-select").addEventListener("change", (e) => {
     state.maxAccuracyM = Number(e.target.value);
@@ -3210,25 +3435,54 @@ async function init() {
   document.getElementById("export-csv-btn").addEventListener("click", exportFilteredCSV);
 
   document.getElementById("clear-btn").addEventListener("click", () => {
+    const advanced = document.getElementById("advanced-mode-toggle").checked;
     state.selectedTaxon = null;
-    state.endemism = new Set(["endemic","near-endemic","disjunct"]);
-    state.sources  = new Set(["herbarium","inat"]);
-    state.statusFilters = new Set(["esa","nv","unlisted"]);
-    state.grades   = new Set(["research","needs_id","casual"]);
+    // IMPORTANT: mutate these Sets in place (.clear() + .add()), never
+    // reassign them (state.x = new Set(...)). Chip click handlers (wired via
+    // wireChips, and the Data Source buttons) capture a reference to these
+    // Set objects when the page loads; reassigning replaces that reference
+    // with a new, disconnected object that chip clicks stop actually
+    // affecting, even though the chips still visually toggle. This was a
+    // real bug -- Quality Grade (and, less visibly, Endemism and
+    // Conservation Status) silently stopped filtering after the first
+    // Clear Filters click, for exactly this reason.
+    state.endemism.clear();
+    state.endemism.add("endemic"); state.endemism.add("near-endemic"); state.endemism.add("disjunct");
+    if (advanced) state.endemism.add("listed");
+    state.sources.clear();
+    state.sources.add("herbarium"); state.sources.add("inat");
+    state.statusFilters.clear();
+    state.statusFilters.add("esa"); state.statusFilters.add("nv"); state.statusFilters.add("unlisted");
+    state.grades.clear();
+    state.grades.add("research"); state.grades.add("needs_id"); state.grades.add("casual");
     state.genus    = "";
+    state.theme    = "";
+    state.excludeTaxa = [];
     state.region   = "";
     state.section  = "";
     state.county   = "";
     state.namedPlace = "";
+    state.blmStatus = "";
+    state.usfsStatus = "";
+    state.grank = "";
     state.maxAccuracyM = 0;
     state.excludeObscured = false;
     document.querySelectorAll(".chip").forEach(c => c.classList.add("on"));
+    // The blanket line above would also turn the Non-endemic chip "on" even
+    // in Simple mode, where it should stay off (and hidden) -- correct that.
+    if (!advanced) document.getElementById("nonendemic-chip").classList.remove("on");
     document.querySelectorAll(".src-btn").forEach(b => b.classList.add("on"));
     document.getElementById("genus-select").value = "";
+    document.getElementById("theme-select").value = "";
+    document.getElementById("exclude-taxa-input").value = "";
+    document.getElementById("exclude-taxa-confirm").style.display = "none";
     document.getElementById("region-select").value = "";
     document.getElementById("section-select").value = "";
     document.getElementById("county-select").value = "";
     document.getElementById("place-select").value = "";
+    document.getElementById("blm-select").value = "";
+    document.getElementById("usfs-select").value = "";
+    document.getElementById("grank-select").value = "";
     updateCountyHighlight();
     updateRegionHighlight();
     updatePlaceHighlight();
